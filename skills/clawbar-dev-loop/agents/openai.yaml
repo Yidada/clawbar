@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clawbar Dev Loop"
+  short_description: "Auto-rebuild and restart Clawbar during edits"
+  default_prompt: "Use $clawbar-dev-loop to run the local Clawbar dev loop and keep the app rebuilt and restarted while editing."

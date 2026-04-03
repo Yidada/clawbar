@@ -70,7 +70,6 @@ struct MenuContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -84,11 +83,10 @@ struct MenuContentView: View {
 
             if let statusExcerpt = installer.statusExcerpt {
                 Text(statusExcerpt)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

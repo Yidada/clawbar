@@ -172,6 +172,32 @@ final class OpenClawInstaller: ObservableObject {
         return trimmed
     }
 
+    nonisolated static func displayBinaryPath(_ path: String) -> String {
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        if path.hasPrefix(homePath + "/") {
+            return "~" + path.dropFirst(homePath.count)
+        }
+        return path
+    }
+
+    nonisolated static func summarizeStatusLine(_ line: String, maxLength: Int = 88) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        let normalized = trimmed.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+
+        if normalized.hasPrefix("[plugins] plugins.allow is empty") {
+            return "plugins.allow is empty; discovered non-bundled plugins."
+        }
+
+        if normalized.count <= maxLength {
+            return normalized
+        }
+
+        let index = normalized.index(normalized.startIndex, offsetBy: maxLength - 1)
+        return String(normalized[..<index]) + "…"
+    }
+
     nonisolated static func shouldRefreshStatus(
         force: Bool,
         isRefreshing: Bool,
@@ -199,13 +225,14 @@ final class OpenClawInstaller: ObservableObject {
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        let displayPath = displayBinaryPath(binaryPath)
 
         if timedOut {
             return OpenClawStatusSnapshot(
                 title: "OpenClaw 已安装",
                 detail: "status 命令未在 3 秒内完成。",
-                excerpt: normalizedOutput.first,
-                binaryPath: binaryPath
+                excerpt: normalizedOutput.first.map { summarizeStatusLine($0) },
+                binaryPath: displayPath
             )
         }
 
@@ -213,8 +240,8 @@ final class OpenClawInstaller: ObservableObject {
             return OpenClawStatusSnapshot(
                 title: "OpenClaw 已安装",
                 detail: "status 已返回最近状态。",
-                excerpt: firstLine,
-                binaryPath: binaryPath
+                excerpt: summarizeStatusLine(firstLine),
+                binaryPath: displayPath
             )
         }
 
@@ -222,7 +249,7 @@ final class OpenClawInstaller: ObservableObject {
             title: "OpenClaw 已安装",
             detail: "已检测到全局命令，但 status 暂无可显示输出。",
             excerpt: nil,
-            binaryPath: binaryPath
+            binaryPath: displayPath
         )
     }
 

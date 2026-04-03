@@ -21,6 +21,26 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertNil(OpenClawInstaller.parseDetectedBinaryPath("\n  \n"))
     }
 
+    func testDisplayBinaryPathCollapsesHomePrefix() {
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        XCTAssertEqual(
+            OpenClawInstaller.displayBinaryPath("\(homePath)/bin/openclaw"),
+            "~/bin/openclaw"
+        )
+    }
+
+    func testSummarizeStatusLineCompressesPluginWarning() {
+        XCTAssertEqual(
+            OpenClawInstaller.summarizeStatusLine("[plugins] plugins.allow is empty; discovered non-bundled plugins may auto-load: foo, bar"),
+            "plugins.allow is empty; discovered non-bundled plugins."
+        )
+    }
+
+    func testSummarizeStatusLineTruncatesLongGenericOutput() {
+        let summary = OpenClawInstaller.summarizeStatusLine(String(repeating: "a", count: 120), maxLength: 20)
+        XCTAssertEqual(summary, String(repeating: "a", count: 19) + "…")
+    }
+
     func testShouldRefreshStatusReturnsTrueWithoutCache() {
         XCTAssertTrue(
             OpenClawInstaller.shouldRefreshStatus(

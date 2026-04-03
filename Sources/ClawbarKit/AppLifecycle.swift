@@ -6,29 +6,40 @@ public enum AppActivationPolicy: String, Equatable, Sendable {
 public struct ApplicationLaunchPlan: Equatable, Sendable {
     public let activationPolicy: AppActivationPolicy
     public let activatesApp: Bool
+    public let showsSmokeTestWindow: Bool
 
-    public init(activationPolicy: AppActivationPolicy, activatesApp: Bool) {
+    public init(
+        activationPolicy: AppActivationPolicy,
+        activatesApp: Bool,
+        showsSmokeTestWindow: Bool
+    ) {
         self.activationPolicy = activationPolicy
         self.activatesApp = activatesApp
+        self.showsSmokeTestWindow = showsSmokeTestWindow
     }
 }
 
 public enum AppMode: String, Equatable, Sendable {
     case menuBar
     case smokeTest
+    case uiTest
 
     public static func detect(
         in environment: [String: String],
         configuration: AppConfiguration = .makeDefault()
     ) -> Self {
-        configuration.isSmokeTestEnabled(in: environment) ? .smokeTest : .menuBar
+        if environment["CLAWBAR_UI_TEST"] == "1" {
+            return .uiTest
+        }
+
+        return configuration.isSmokeTestEnabled(in: environment) ? .smokeTest : .menuBar
     }
 
     public var activationPolicy: AppActivationPolicy {
         switch self {
         case .menuBar:
             .accessory
-        case .smokeTest:
+        case .smokeTest, .uiTest:
             .regular
         }
     }
@@ -38,7 +49,12 @@ public enum AppMode: String, Equatable, Sendable {
     }
 
     public var shouldActivateOnLaunch: Bool {
-        self == .smokeTest
+        switch self {
+        case .menuBar:
+            false
+        case .smokeTest, .uiTest:
+            true
+        }
     }
 }
 
@@ -57,7 +73,8 @@ public struct AppLifecycleController: Sendable {
         let currentMode = mode(in: environment)
         return ApplicationLaunchPlan(
             activationPolicy: currentMode.activationPolicy,
-            activatesApp: currentMode.shouldActivateOnLaunch
+            activatesApp: currentMode.shouldActivateOnLaunch,
+            showsSmokeTestWindow: currentMode.showsSmokeTestWindow
         )
     }
 }

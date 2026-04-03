@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clawbar Menubar Screenshot"
+  short_description: "Open Clawbar and capture its menubar popup"
+  default_prompt: "Use $clawbar-menubar-screenshot to open the Clawbar status item and save a screenshot artifact from this repository."
+policy:
+  allow_implicit_invocation: true

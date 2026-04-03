@@ -2,6 +2,11 @@ public enum MenuContentElement: String, Equatable, Sendable {
     case title
     case subtitle
     case installButton
+    case openClawSection
+    case openClawTitle
+    case openClawBinaryPath
+    case openClawDetail
+    case openClawExcerpt
     case quitButton
 }
 

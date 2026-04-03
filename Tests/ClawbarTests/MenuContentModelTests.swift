@@ -31,6 +31,11 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.accessibilityIdentifier(for: .title), "clawbar.menu.title")
         XCTAssertEqual(model.accessibilityIdentifier(for: .subtitle), "clawbar.menu.subtitle")
         XCTAssertEqual(model.accessibilityIdentifier(for: .installButton), "clawbar.menu.installButton")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawSection), "clawbar.menu.openClawSection")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawTitle), "clawbar.menu.openClawTitle")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawBinaryPath), "clawbar.menu.openClawBinaryPath")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawDetail), "clawbar.menu.openClawDetail")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawExcerpt), "clawbar.menu.openClawExcerpt")
         XCTAssertEqual(model.accessibilityIdentifier(for: .quitButton), "clawbar.menu.quitButton")
     }
 }

@@ -55,6 +55,7 @@ struct MenuContentView: View {
                 Text("OpenClaw")
                     .font(.subheadline)
                     .fontWeight(.semibold)
+                    .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawTitle))
 
                 if installer.isRefreshingStatus {
                     Spacer()
@@ -71,6 +72,7 @@ struct MenuContentView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawBinaryPath))
             }
 
             Text(installer.detailText)
@@ -80,6 +82,7 @@ struct MenuContentView: View {
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawDetail))
 
             if let statusExcerpt = installer.statusExcerpt {
                 Text(statusExcerpt)
@@ -88,10 +91,12 @@ struct MenuContentView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawExcerpt))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawSection))
     }
 
     private func installOpenClaw() {

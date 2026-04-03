@@ -50,4 +50,23 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertTrue(smokeWindowShown)
         XCTAssertEqual(activationRequests, [true])
     }
+
+    func testApplicationDidFinishLaunchingActivatesAppInUITestModeWithoutSmokeWindow() {
+        var appliedPolicies: [AppActivationPolicy] = []
+        var smokeWindowShown = false
+        var activationRequests: [Bool] = []
+        let delegate = AppDelegate(
+            lifecycleController: AppLifecycleController(),
+            environmentProvider: { ["CLAWBAR_UI_TEST": "1"] },
+            setActivationPolicy: { appliedPolicies.append($0) },
+            showSmokeTestWindow: { smokeWindowShown = true },
+            activateApplication: { activationRequests.append($0) }
+        )
+
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+
+        XCTAssertEqual(appliedPolicies, [.regular])
+        XCTAssertFalse(smokeWindowShown)
+        XCTAssertEqual(activationRequests, [true])
+    }
 }

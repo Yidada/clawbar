@@ -7,6 +7,37 @@ struct OpenClawStatusSnapshot: Equatable, Sendable {
     let binaryPath: String
 }
 
+struct OpenClawInstallerOverride: Equatable, Sendable {
+    enum State: Equatable, Sendable {
+        case missing
+        case installed(OpenClawStatusSnapshot)
+    }
+
+    let state: State
+
+    static func from(environment: [String: String]) -> Self? {
+        guard let rawState = environment["CLAWBAR_TEST_OPENCLAW_STATE"]?.lowercased() else {
+            return nil
+        }
+
+        switch rawState {
+        case "missing":
+            return Self(state: .missing)
+        case "installed":
+            let binaryPath = environment["CLAWBAR_TEST_OPENCLAW_BINARY_PATH"] ?? "/opt/homebrew/bin/openclaw"
+            let snapshot = OpenClawStatusSnapshot(
+                title: environment["CLAWBAR_TEST_OPENCLAW_TITLE"] ?? "OpenClaw 已安装",
+                detail: environment["CLAWBAR_TEST_OPENCLAW_DETAIL"] ?? "status 已返回最近状态。",
+                excerpt: environment["CLAWBAR_TEST_OPENCLAW_EXCERPT"],
+                binaryPath: OpenClawInstaller.displayBinaryPath(binaryPath)
+            )
+            return Self(state: .installed(snapshot))
+        default:
+            return nil
+        }
+    }
+}
+
 enum OpenClawInstallerError: LocalizedError {
     case installationFailed(status: Int32, logURL: URL)
     case launchFailed(underlyingError: Error)
@@ -23,7 +54,11 @@ enum OpenClawInstallerError: LocalizedError {
 
 @MainActor
 final class OpenClawInstaller: ObservableObject {
-    static let shared = OpenClawInstaller()
+    static let shared: OpenClawInstaller = {
+        let environment = ProcessInfo.processInfo.environment
+        let overrideState = OpenClawInstallerOverride.from(environment: environment)
+        return OpenClawInstaller(overrideState: overrideState, autoStartTimer: overrideState == nil)
+    }()
     nonisolated static let defaultRefreshInterval: TimeInterval = 30
     nonisolated static let installScriptURL = URL(string: "https://openclaw.ai/install.sh")!
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
@@ -45,22 +80,30 @@ final class OpenClawInstaller: ObservableObject {
     private var outputHandle: FileHandle?
     private let refreshInterval: TimeInterval
     private let nowProvider: @Sendable () -> Date
+    private let overrideState: OpenClawInstallerOverride?
     private var refreshTimer: Timer?
 
     init(
         refreshInterval: TimeInterval = OpenClawInstaller.defaultRefreshInterval,
         nowProvider: @escaping @Sendable () -> Date = Date.init,
+        overrideState: OpenClawInstallerOverride? = nil,
         autoStartTimer: Bool = true
     ) {
         self.refreshInterval = refreshInterval
         self.nowProvider = nowProvider
+        self.overrideState = overrideState
 
-        if autoStartTimer {
+        if autoStartTimer, overrideState == nil {
             startPeriodicRefresh()
         }
     }
 
     func refreshInstallationStatus(force: Bool = false) {
+        if let overrideState {
+            applyOverrideState(overrideState)
+            return
+        }
+
         let now = nowProvider()
         guard Self.shouldRefreshStatus(
             force: force,
@@ -97,6 +140,30 @@ final class OpenClawInstaller: ObservableObject {
                     self.statusText = "准备安装 OpenClaw。"
                     self.detailText = "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
                 }
+            }
+        }
+    }
+
+    private func applyOverrideState(_ overrideState: OpenClawInstallerOverride) {
+        isRefreshingStatus = false
+        lastStatusRefreshDate = nowProvider()
+
+        switch overrideState.state {
+        case .missing:
+            isInstalled = false
+            installedBinaryPath = nil
+            statusExcerpt = nil
+            if !isInstalling {
+                statusText = "准备安装 OpenClaw。"
+                detailText = "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
+            }
+        case let .installed(snapshot):
+            isInstalled = true
+            installedBinaryPath = snapshot.binaryPath
+            statusExcerpt = snapshot.excerpt
+            if !isInstalling {
+                statusText = snapshot.title
+                detailText = snapshot.detail
             }
         }
     }

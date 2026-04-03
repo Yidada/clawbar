@@ -122,6 +122,63 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
+    func testOverrideParsesInstalledStateFromEnvironment() {
+        let overrideState = OpenClawInstallerOverride.from(environment: [
+            "CLAWBAR_TEST_OPENCLAW_STATE": "installed",
+            "CLAWBAR_TEST_OPENCLAW_BINARY_PATH": "/opt/homebrew/bin/openclaw",
+            "CLAWBAR_TEST_OPENCLAW_DETAIL": "status 已返回最近状态。",
+            "CLAWBAR_TEST_OPENCLAW_EXCERPT": "plugins.allow is empty; discovered non-bundled plugins."
+        ])
+
+        guard case let .installed(snapshot)? = overrideState?.state else {
+            return XCTFail("Expected installed override state")
+        }
+
+        XCTAssertEqual(snapshot.title, "OpenClaw 已安装")
+        XCTAssertEqual(snapshot.detail, "status 已返回最近状态。")
+        XCTAssertEqual(snapshot.excerpt, "plugins.allow is empty; discovered non-bundled plugins.")
+        XCTAssertEqual(snapshot.binaryPath, "/opt/homebrew/bin/openclaw")
+    }
+
+    func testRefreshInstallationStatusUsesOverrideSnapshot() {
+        let installer = OpenClawInstaller(
+            overrideState: OpenClawInstallerOverride(
+                state: .installed(
+                    OpenClawStatusSnapshot(
+                        title: "OpenClaw 已安装",
+                        detail: "status 已返回最近状态。",
+                        excerpt: "plugins.allow is empty; discovered non-bundled plugins.",
+                        binaryPath: "/opt/homebrew/bin/openclaw"
+                    )
+                )
+            ),
+            autoStartTimer: false
+        )
+
+        installer.refreshInstallationStatus()
+
+        XCTAssertTrue(installer.isInstalled)
+        XCTAssertEqual(installer.statusText, "OpenClaw 已安装")
+        XCTAssertEqual(installer.detailText, "status 已返回最近状态。")
+        XCTAssertEqual(installer.statusExcerpt, "plugins.allow is empty; discovered non-bundled plugins.")
+        XCTAssertEqual(installer.installedBinaryPath, "/opt/homebrew/bin/openclaw")
+        XCTAssertNotNil(installer.lastStatusRefreshDate)
+    }
+
+    func testRefreshInstallationStatusUsesMissingOverride() {
+        let installer = OpenClawInstaller(
+            overrideState: OpenClawInstallerOverride(state: .missing),
+            autoStartTimer: false
+        )
+
+        installer.refreshInstallationStatus()
+
+        XCTAssertFalse(installer.isInstalled)
+        XCTAssertNil(installer.installedBinaryPath)
+        XCTAssertEqual(installer.statusText, "准备安装 OpenClaw。")
+        XCTAssertEqual(installer.detailText, "点击按钮后会执行官方安装脚本，但不会进入 onboarding。")
+    }
+
     func testSharedInstallerStartsWithUserFacingIdleMessages() {
         let installer = OpenClawInstaller(autoStartTimer: false)
 

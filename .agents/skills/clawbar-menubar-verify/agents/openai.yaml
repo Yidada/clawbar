@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clawbar Menubar Verify"
+  short_description: "Open Clawbar and verify its menubar popup contents"
+  default_prompt: "Use $clawbar-menubar-verify to run the Clawbar menubar UI verification flow for this repository."
+policy:
+  allow_implicit_invocation: true

@@ -7,8 +7,12 @@ struct ClawbarApp: App {
     private let configuration = AppConfiguration.makeDefault()
 
     var body: some Scene {
-        MenuBarExtra(configuration.menuBarTitle, systemImage: configuration.systemImageName) {
+        MenuBarExtra {
             MenuContentView(model: .makeDefault(configuration: configuration))
+        } label: {
+            Label(configuration.menuBarTitle, systemImage: configuration.systemImageName)
+                .labelStyle(.iconOnly)
+                .accessibilityLabel(Text(configuration.menuBarTitle))
         }
         .menuBarExtraStyle(.menu)
     }

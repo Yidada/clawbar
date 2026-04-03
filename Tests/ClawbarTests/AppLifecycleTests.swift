@@ -14,6 +14,12 @@ final class AppLifecycleTests: XCTestCase {
         XCTAssertEqual(mode, .smokeTest)
     }
 
+    func testDetectReturnsUITestModeWhenFlagIsSet() {
+        let mode = AppMode.detect(in: ["CLAWBAR_UI_TEST": "1"])
+
+        XCTAssertEqual(mode, .uiTest)
+    }
+
     func testModePropertiesMatchExpectedBehavior() {
         XCTAssertEqual(AppMode.menuBar.activationPolicy, .accessory)
         XCTAssertFalse(AppMode.menuBar.showsSmokeTestWindow)
@@ -22,6 +28,10 @@ final class AppLifecycleTests: XCTestCase {
         XCTAssertEqual(AppMode.smokeTest.activationPolicy, .regular)
         XCTAssertTrue(AppMode.smokeTest.showsSmokeTestWindow)
         XCTAssertTrue(AppMode.smokeTest.shouldActivateOnLaunch)
+
+        XCTAssertEqual(AppMode.uiTest.activationPolicy, .regular)
+        XCTAssertFalse(AppMode.uiTest.showsSmokeTestWindow)
+        XCTAssertTrue(AppMode.uiTest.shouldActivateOnLaunch)
     }
 
     func testLifecycleControllerReturnsMenuBarLaunchPlanByDefault() {
@@ -29,7 +39,7 @@ final class AppLifecycleTests: XCTestCase {
         let plan = controller.launchPlan(in: [:])
 
         XCTAssertEqual(controller.mode(in: [:]), .menuBar)
-        XCTAssertEqual(plan, ApplicationLaunchPlan(activationPolicy: .accessory, activatesApp: false))
+        XCTAssertEqual(plan, ApplicationLaunchPlan(activationPolicy: .accessory, activatesApp: false, showsSmokeTestWindow: false))
     }
 
     func testLifecycleControllerReturnsSmokeTestLaunchPlanWhenFlagIsSet() {
@@ -38,6 +48,15 @@ final class AppLifecycleTests: XCTestCase {
         let plan = controller.launchPlan(in: environment)
 
         XCTAssertEqual(controller.mode(in: environment), .smokeTest)
-        XCTAssertEqual(plan, ApplicationLaunchPlan(activationPolicy: .regular, activatesApp: true))
+        XCTAssertEqual(plan, ApplicationLaunchPlan(activationPolicy: .regular, activatesApp: true, showsSmokeTestWindow: true))
+    }
+
+    func testLifecycleControllerReturnsUITestLaunchPlanWhenFlagIsSet() {
+        let controller = AppLifecycleController()
+        let environment = ["CLAWBAR_UI_TEST": "1"]
+        let plan = controller.launchPlan(in: environment)
+
+        XCTAssertEqual(controller.mode(in: environment), .uiTest)
+        XCTAssertEqual(plan, ApplicationLaunchPlan(activationPolicy: .regular, activatesApp: true, showsSmokeTestWindow: false))
     }
 }

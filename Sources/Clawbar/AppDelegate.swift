@@ -45,8 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setActivationPolicy(launchPlan.activationPolicy)
 
-        if launchPlan.activatesApp {
+        if launchPlan.showsSmokeTestWindow {
             showSmokeTestWindow()
+        }
+
+        if launchPlan.activatesApp {
             activateApplication(true)
         }
     }

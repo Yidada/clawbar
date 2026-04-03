@@ -9,6 +9,7 @@ final class MenuContentModelTests: XCTestCase {
             systemImageName: "star",
             helloTitle: "Hi",
             helloSubtitle: "Subtitle",
+            installLabel: "Install OpenClaw",
             quitLabel: "Exit",
             smokeTestEnvironmentVariable: "SMOKE",
             smokeTestWindowTitle: "Smoke",
@@ -19,6 +20,7 @@ final class MenuContentModelTests: XCTestCase {
 
         XCTAssertEqual(model.title, "Hi")
         XCTAssertEqual(model.subtitle, "Subtitle")
+        XCTAssertEqual(model.installButtonTitle, "Install OpenClaw")
         XCTAssertEqual(model.quitButtonTitle, "Exit")
         XCTAssertEqual(model.width, 320)
     }
@@ -28,6 +30,7 @@ final class MenuContentModelTests: XCTestCase {
 
         XCTAssertEqual(model.accessibilityIdentifier(for: .title), "clawbar.menu.title")
         XCTAssertEqual(model.accessibilityIdentifier(for: .subtitle), "clawbar.menu.subtitle")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .installButton), "clawbar.menu.installButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .quitButton), "clawbar.menu.quitButton")
     }
 }

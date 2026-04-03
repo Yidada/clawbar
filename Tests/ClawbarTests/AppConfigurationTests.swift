@@ -9,10 +9,11 @@ final class AppConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.menuBarTitle, "Clawbar")
         XCTAssertEqual(configuration.systemImageName, "hand.wave.fill")
         XCTAssertEqual(configuration.helloTitle, "Hello World")
+        XCTAssertEqual(configuration.installLabel, "安装 OpenClaw")
         XCTAssertEqual(configuration.quitLabel, "Quit")
         XCTAssertEqual(configuration.smokeTestEnvironmentVariable, "CLAWBAR_SMOKE_TEST")
         XCTAssertEqual(configuration.smokeTestWindowTitle, "Clawbar Smoke Test")
-        XCTAssertEqual(configuration.menuWidth, 260)
+        XCTAssertEqual(configuration.menuWidth, 320)
     }
 
     func testIsSmokeTestEnabledReturnsTrueWhenFlagIsSet() {

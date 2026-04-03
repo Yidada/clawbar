@@ -15,6 +15,7 @@ from pathlib import Path
 print(Path(".build/debug/Clawbar").resolve())
 PY
 )"
+APP_PID=""
 
 fingerprint() {
     python3 - "$ROOT_DIR" <<'PY'
@@ -48,6 +49,14 @@ running_pids() {
 }
 
 stop_app() {
+    if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
+        kill "$APP_PID" 2>/dev/null || true
+        wait "$APP_PID" 2>/dev/null || true
+        APP_PID=""
+        sleep 1
+        return
+    fi
+
     local pids
     pids="$(running_pids)"
     if [[ -n "$pids" ]]; then
@@ -58,7 +67,8 @@ stop_app() {
 
 launch_app() {
     : >"$APP_LOG"
-    open -g -n "$APP_BINARY_REAL" --stdout "$APP_LOG" --stderr "$APP_LOG"
+    "$APP_BINARY_REAL" >"$APP_LOG" 2>&1 &
+    APP_PID=$!
 }
 
 restart_app() {

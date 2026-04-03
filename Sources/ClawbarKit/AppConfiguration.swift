@@ -4,6 +4,7 @@ public struct AppConfiguration: Equatable, Sendable {
     public let systemImageName: String
     public let helloTitle: String
     public let helloSubtitle: String
+    public let installLabel: String
     public let quitLabel: String
     public let smokeTestEnvironmentVariable: String
     public let smokeTestWindowTitle: String
@@ -15,6 +16,7 @@ public struct AppConfiguration: Equatable, Sendable {
         systemImageName: String,
         helloTitle: String,
         helloSubtitle: String,
+        installLabel: String,
         quitLabel: String,
         smokeTestEnvironmentVariable: String,
         smokeTestWindowTitle: String,
@@ -25,6 +27,7 @@ public struct AppConfiguration: Equatable, Sendable {
         self.systemImageName = systemImageName
         self.helloTitle = helloTitle
         self.helloSubtitle = helloSubtitle
+        self.installLabel = installLabel
         self.quitLabel = quitLabel
         self.smokeTestEnvironmentVariable = smokeTestEnvironmentVariable
         self.smokeTestWindowTitle = smokeTestWindowTitle
@@ -38,10 +41,11 @@ public struct AppConfiguration: Equatable, Sendable {
             systemImageName: "hand.wave.fill",
             helloTitle: "Hello World",
             helloSubtitle: "This is the smallest possible Clawbar scaffold.",
+            installLabel: "安装 OpenClaw",
             quitLabel: "Quit",
             smokeTestEnvironmentVariable: "CLAWBAR_SMOKE_TEST",
             smokeTestWindowTitle: "Clawbar Smoke Test",
-            menuWidth: 260
+            menuWidth: 320
         )
     }
 

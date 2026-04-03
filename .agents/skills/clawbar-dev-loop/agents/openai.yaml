@@ -1,0 +1,6 @@
+interface:
+  display_name: "Clawbar Dev Loop"
+  short_description: "Auto-rebuild and relaunch Clawbar while editing"
+  default_prompt: "Use $clawbar-dev-loop to run the Clawbar edit-build-relaunch loop for this repository while you work."
+policy:
+  allow_implicit_invocation: true

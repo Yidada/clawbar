@@ -1,6 +1,6 @@
 ---
 name: clawbar-dev-loop
-description: Run the local Clawbar auto-rebuild development loop for this repository. Use when editing `Package.swift`, files under `Sources/`, or tests under `Tests/` and you want Clawbar to rebuild and relaunch automatically after each save instead of manually rerunning `swift build` and reopening the app.
+description: Run the local Clawbar edit-build-relaunch loop for this repository. Use when working on `Package.swift`, files under `Sources/`, or tests under `Tests/` and you want Clawbar to rebuild and relaunch automatically after each save instead of manually rerunning the app. Do not use for unrelated repository tasks or when a one-off `swift test` or `swift build` run is enough.
 ---
 
 # Clawbar Dev Loop
@@ -9,8 +9,8 @@ Run the repository's dev loop wrapper from this skill when the user wants a fast
 
 ## Workflow
 
-1. Work from the repository root at `/Users/benjamin/Workspace/ai-agents/clawbar`.
-2. Start the loop with `./skills/clawbar-dev-loop/scripts/run-dev-loop.sh`.
+1. Work from the repository root of the current `clawbar` checkout.
+2. Start the loop with `./.agents/skills/clawbar-dev-loop/scripts/run-dev-loop.sh`.
 3. Keep the session open while editing. The loop watches `Package.swift`, `Sources/`, and `Tests/`.
 4. Stop the loop with `Ctrl+C` when the user is done.
 

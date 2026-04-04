@@ -59,6 +59,7 @@ struct OpenClawGatewayStatusSnapshot: Equatable, Sendable {
     let serviceLoaded: Bool
     let serviceLabel: String?
     let pid: Int?
+    let missingUnit: Bool
 
     var title: String { state.title }
 
@@ -69,7 +70,8 @@ struct OpenClawGatewayStatusSnapshot: Equatable, Sendable {
         runtimeStatus: nil,
         serviceLoaded: false,
         serviceLabel: nil,
-        pid: nil
+        pid: nil,
+        missingUnit: true
     )
 }
 
@@ -96,7 +98,6 @@ final class OpenClawGatewayManager: ObservableObject {
     @Published private(set) var isPerformingAction = false
     @Published private(set) var lastActionSummary = "等待操作"
     @Published private(set) var lastActionDetail = "点击按钮后会直接调用 openclaw gateway 的后台服务命令。"
-    @Published private(set) var lastCommandOutput = ""
     @Published private(set) var lastStatusRefreshDate: Date?
 
     func refreshStatus() {
@@ -135,7 +136,6 @@ final class OpenClawGatewayManager: ObservableObject {
             snapshot = .missing
             lastActionSummary = "未检测到 OpenClaw"
             lastActionDetail = "请先完成安装，再执行 Gateway 管理动作。"
-            lastCommandOutput = "$ openclaw gateway \(action.commandName) --json\n\nopenclaw command not found"
             return
         }
 
@@ -143,7 +143,6 @@ final class OpenClawGatewayManager: ObservableObject {
         isPerformingAction = true
         lastActionSummary = "正在\(action.displayName) Gateway..."
         lastActionDetail = "等待 openclaw gateway \(action.commandName) 返回。"
-        lastCommandOutput = "$ \(command)\n\n"
 
         Task.detached(priority: .userInitiated) {
             let result = Self.runCommand(command, environment: environment, timeout: 20)
@@ -153,7 +152,6 @@ final class OpenClawGatewayManager: ObservableObject {
                 self.isPerformingAction = false
                 self.lastActionSummary = feedback.summary
                 self.lastActionDetail = feedback.detail ?? "命令已完成。"
-                self.lastCommandOutput = "$ \(command)\n\n" + result.output.nonEmptyOr("(no output)")
                 self.refreshStatus()
             }
         }
@@ -183,7 +181,8 @@ final class OpenClawGatewayManager: ObservableObject {
                 runtimeStatus: nil,
                 serviceLoaded: false,
                 serviceLabel: nil,
-                pid: nil
+                pid: nil,
+                missingUnit: false
             )
         }
 
@@ -199,7 +198,8 @@ final class OpenClawGatewayManager: ObservableObject {
                 runtimeStatus: nil,
                 serviceLoaded: false,
                 serviceLabel: nil,
-                pid: nil
+                pid: nil,
+                missingUnit: false
             )
         }
 
@@ -208,6 +208,7 @@ final class OpenClawGatewayManager: ObservableObject {
         let runtimeStatus = (runtime?["status"] as? String)?.lowercased()
         let runtimeDetail = (runtime?["detail"] as? String)?.trimmedNonEmpty
         let pid = runtime?["pid"] as? Int
+        let missingUnit = runtime?["missingUnit"] as? Bool ?? false
         let serviceLabel = (service["label"] as? String)?.trimmedNonEmpty
         let notLoadedText = (service["notLoadedText"] as? String)?.trimmedNonEmpty
 
@@ -227,6 +228,9 @@ final class OpenClawGatewayManager: ObservableObject {
         case (true, "scheduled"), (true, "starting"), (true, "stopping"):
             state = .transitioning
             detail = runtimeDetail ?? "Gateway 服务正在切换状态，请稍后刷新。"
+        case (false, _) where missingUnit:
+            state = .missing
+            detail = runtimeDetail ?? "Gateway 服务尚未安装到 launchd。"
         case (false, _):
             state = .stopped
             detail = notLoadedText ?? "Gateway 服务当前未加载；通常表示尚未启动，或已经被暂停。"
@@ -242,7 +246,8 @@ final class OpenClawGatewayManager: ObservableObject {
             runtimeStatus: runtimeStatus,
             serviceLoaded: loaded,
             serviceLabel: serviceLabel,
-            pid: pid
+            pid: pid,
+            missingUnit: missingUnit
         )
     }
 

@@ -20,6 +20,12 @@
       "mode": "owned",
       "category": "ui-verification",
       "purpose": "Run an Accessibility-driven verification pass against the live menubar popup."
+    },
+    {
+      "name": "clawbar-openclaw-logs",
+      "mode": "owned",
+      "category": "diagnostics",
+      "purpose": "Collect the current Clawbar and OpenClaw runtime logs into a single diagnostics bundle for troubleshooting."
     }
   ]
 }

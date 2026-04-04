@@ -111,6 +111,17 @@ struct OpenClawStatusSnapshot: Equatable, Sendable {
     let binaryPath: String
 }
 
+struct OpenClawGatewayPreparationResult: Equatable, Sendable {
+    let token: String?
+    let statusSnapshot: OpenClawGatewayStatusSnapshot?
+    let installCommandOutput: String?
+    let failureDetail: String?
+
+    var isReady: Bool {
+        failureDetail == nil && !(statusSnapshot?.missingUnit ?? true)
+    }
+}
+
 struct OpenClawInstallerOverride: Equatable, Sendable {
     enum State: Equatable, Sendable {
         case missing
@@ -169,6 +180,8 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let uninstallCommand = "openclaw uninstall --all --yes --non-interactive && npm rm -g openclaw"
     nonisolated static let detectCommand = "command -v openclaw"
     nonisolated static let statusCommand = "openclaw status"
+    nonisolated static let gatewayInstallCommand = "openclaw gateway install --json"
+    nonisolated static let gatewayStatusCommand = OpenClawGatewayManager.statusCommand
 
     @Published private(set) var isInstalling = false
     @Published private(set) var isUninstalling = false
@@ -251,6 +264,9 @@ final class OpenClawInstaller: ObservableObject {
             let snapshot = path.map { binaryPath in
                 Self.fetchStatusSnapshot(binaryPath: binaryPath, environment: environment)
             }
+            let gatewaySnapshot = path.map { binaryPath in
+                Self.fetchGatewayStatusSnapshot(binaryPath: binaryPath, environment: environment)
+            }
 
             await MainActor.run {
                 self.isRefreshingStatus = false
@@ -262,8 +278,9 @@ final class OpenClawInstaller: ObservableObject {
                 guard !self.isBusy else { return }
 
                 if let snapshot {
-                    self.statusText = snapshot.title
-                    self.detailText = snapshot.detail
+                    let resolvedSnapshot = Self.mergeStatusSnapshot(snapshot, gatewaySnapshot: gatewaySnapshot)
+                    self.statusText = resolvedSnapshot.title
+                    self.detailText = resolvedSnapshot.detail
                 } else {
                     self.statusText = OpenClawOperation.install.idleStatusText
                     self.detailText = OpenClawOperation.install.idleDetailText
@@ -427,6 +444,69 @@ final class OpenClawInstaller: ObservableObject {
         )
     }
 
+    nonisolated static func mergeStatusSnapshot(
+        _ snapshot: OpenClawStatusSnapshot,
+        gatewaySnapshot: OpenClawGatewayStatusSnapshot?
+    ) -> OpenClawStatusSnapshot {
+        guard let gatewaySnapshot, gatewaySnapshot.missingUnit else {
+            return snapshot
+        }
+
+        return OpenClawStatusSnapshot(
+            title: snapshot.title,
+            detail: "OpenClaw CLI 已安装，但 Gateway 服务尚未安装到 launchd。",
+            excerpt: snapshot.excerpt,
+            binaryPath: snapshot.binaryPath
+        )
+    }
+
+    nonisolated static func prepareGatewayService(
+        binaryPath: String,
+        environment: [String: String],
+        configureGateway: @escaping @Sendable () throws -> String,
+        runGatewayCommand: @escaping @Sendable (String, [String: String], TimeInterval) -> OpenClawGatewayCommandResult = OpenClawInstaller.runGatewayCommand,
+        fetchGatewayStatus: @escaping @Sendable (String, [String: String]) -> OpenClawGatewayStatusSnapshot = OpenClawInstaller.fetchGatewayStatusSnapshot
+    ) -> OpenClawGatewayPreparationResult {
+        let token: String
+        do {
+            token = try configureGateway()
+        } catch {
+            return OpenClawGatewayPreparationResult(
+                token: nil,
+                statusSnapshot: nil,
+                installCommandOutput: nil,
+                failureDetail: "Gateway token 初始化失败：\(error.localizedDescription)"
+            )
+        }
+
+        let installResult = runGatewayCommand(gatewayInstallCommand, environment, 20)
+        if let failureDetail = parseGatewayInstallFailure(installResult) {
+            return OpenClawGatewayPreparationResult(
+                token: token,
+                statusSnapshot: nil,
+                installCommandOutput: trimmedNonEmpty(installResult.output),
+                failureDetail: failureDetail
+            )
+        }
+
+        let gatewayStatusSnapshot = fetchGatewayStatus(binaryPath, environment)
+        if gatewayStatusSnapshot.missingUnit {
+            return OpenClawGatewayPreparationResult(
+                token: token,
+                statusSnapshot: gatewayStatusSnapshot,
+                installCommandOutput: trimmedNonEmpty(installResult.output),
+                failureDetail: "Gateway 服务安装命令已完成，但 launchd 中仍未注册 ai.openclaw.gateway。"
+            )
+        }
+
+        return OpenClawGatewayPreparationResult(
+            token: token,
+            statusSnapshot: gatewayStatusSnapshot,
+            installCommandOutput: trimmedNonEmpty(installResult.output),
+            failureDetail: nil
+        )
+    }
+
     private nonisolated static func makeProcess(
         command: String,
         logURL: URL,
@@ -513,6 +593,59 @@ final class OpenClawInstaller: ObservableObject {
             commandOutput: result.output,
             timedOut: result.timedOut
         )
+    }
+
+    private nonisolated static func fetchGatewayStatusSnapshot(binaryPath: String, environment: [String: String]) -> OpenClawGatewayStatusSnapshot {
+        let result = runGatewayCommand(gatewayStatusCommand, environment, 8)
+        return OpenClawGatewayManager.makeStatusSnapshot(binaryPath: binaryPath, commandResult: result)
+    }
+
+    private nonisolated static func runGatewayCommand(
+        _ command: String,
+        _ environment: [String: String],
+        _ timeout: TimeInterval
+    ) -> OpenClawGatewayCommandResult {
+        let result = runCommand(command, environment: environment, timeout: timeout)
+        return OpenClawGatewayCommandResult(
+            output: result.output,
+            exitStatus: result.exitStatus,
+            timedOut: result.timedOut
+        )
+    }
+
+    private nonisolated static func parseGatewayInstallFailure(_ result: OpenClawGatewayCommandResult) -> String? {
+        if result.timedOut {
+            return "Gateway 服务安装命令超时。"
+        }
+
+        if let payload = parseJSONObject(from: result.output),
+           let ok = payload["ok"] as? Bool,
+           !ok {
+            return trimmedNonEmpty(payload["error"] as? String)
+                ?? trimmedNonEmpty(payload["message"] as? String)
+                ?? nonEmptyOr(result.output, fallback: "Gateway 服务安装失败。")
+        }
+
+        if result.exitStatus != 0 {
+            return nonEmptyOr(result.output, fallback: "Gateway 服务安装返回了非零退出码 \(result.exitStatus)。")
+        }
+
+        return nil
+    }
+
+    private nonisolated static func trimmedNonEmpty(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private nonisolated static func nonEmptyOr(_ text: String, fallback: String) -> String {
+        trimmedNonEmpty(text) ?? fallback
+    }
+
+    private nonisolated static func parseJSONObject(from output: String) -> [String: Any]? {
+        guard let data = output.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     private nonisolated static func runCommand(
@@ -607,35 +740,60 @@ final class OpenClawInstaller: ObservableObject {
         switch result {
         case .success:
             let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
-            let openClawPath = Self.detectInstalledBinaryPath(environment: environment)
+            statusText = "正在完成 OpenClaw 安装..."
+            detailText = "安装脚本已完成，正在准备 Gateway 配置与后台服务。"
 
-            guard openClawPath != nil else {
-                isInstalling = false
-                statusText = "OpenClaw 安装完成。"
-                detailText = "安装脚本执行结束，但尚未检测到全局 openclaw 命令。"
-                logText += "\n[Clawbar] OpenClaw 安装完成，但未检测到全局 openclaw 命令。\n"
-                refreshInstallationStatus(force: true)
-                return
-            }
+            Task.detached(priority: .utility) {
+                let openClawPath = Self.detectInstalledBinaryPath(environment: environment)
 
-            do {
-                let token = try OpenClawGatewayCredentialStore.shared.ensureGatewayTokenConfigured()
-                logText += "\n[Clawbar] 已为 Gateway 准备本地 token：\(token.prefix(12))...\n"
-            } catch {
-                logText += "\n[Clawbar] Gateway token 初始化失败：\(error.localizedDescription)\n"
-            }
+                guard let openClawPath else {
+                    await MainActor.run {
+                        self.isInstalling = false
+                        self.statusText = "OpenClaw 安装完成。"
+                        self.detailText = "安装脚本执行结束，但尚未检测到全局 openclaw 命令。"
+                        self.logText += "\n[Clawbar] OpenClaw 安装完成，但未检测到全局 openclaw 命令。\n"
+                        self.refreshInstallationStatus(force: true)
+                    }
+                    return
+                }
 
-            let snapshot = openClawPath.map {
-                Self.fetchStatusSnapshot(binaryPath: $0, environment: environment)
+                let snapshot = Self.fetchStatusSnapshot(binaryPath: openClawPath, environment: environment)
+                let gatewayPreparation = Self.prepareGatewayService(
+                    binaryPath: openClawPath,
+                    environment: environment,
+                    configureGateway: {
+                        try OpenClawGatewayCredentialStore.shared.ensureGatewayTokenConfigured()
+                    }
+                )
+
+                await MainActor.run {
+                    self.isInstalling = false
+                    self.isInstalled = true
+                    self.installedBinaryPath = openClawPath
+                    self.statusExcerpt = snapshot.excerpt
+                    self.lastStatusRefreshDate = self.nowProvider()
+
+                    if let token = gatewayPreparation.token {
+                        self.logText += "\n[Clawbar] 已为 Gateway 准备本地 token：\(token.prefix(12))...\n"
+                    }
+
+                    if let installOutput = gatewayPreparation.installCommandOutput {
+                        self.logText += "\n$ \(Self.gatewayInstallCommand)\n\n\(installOutput)\n"
+                    }
+
+                    if gatewayPreparation.isReady {
+                        self.statusText = "OpenClaw 安装完成。"
+                        self.detailText = "Gateway 服务已安装；下一步可前往 Channels 页按需安装和绑定微信能力。"
+                        self.logText += "\n[Clawbar] OpenClaw 安装完成；Gateway 服务已安装。\n"
+                    } else {
+                        self.statusText = "OpenClaw 安装完成，但 Gateway 服务未就绪。"
+                        self.detailText = gatewayPreparation.failureDetail ?? "请前往 Gateway 页检查服务安装状态。"
+                        self.logText += "\n[Clawbar] \(self.detailText)\n"
+                    }
+
+                    OpenClawGatewayManager.shared.refreshStatus()
+                }
             }
-            isInstalling = false
-            isInstalled = true
-            installedBinaryPath = openClawPath
-            statusExcerpt = snapshot?.excerpt
-            lastStatusRefreshDate = nowProvider()
-            statusText = "OpenClaw 安装完成。"
-            detailText = "下一步可前往 Channels 页，按需安装和绑定微信能力。"
-            logText += "\n[Clawbar] OpenClaw 安装完成；微信能力已改为在 Channels 页独立安装。\n"
         case let .failure(error):
             isInstalling = false
             statusText = "OpenClaw 安装失败。"

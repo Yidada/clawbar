@@ -22,7 +22,6 @@ struct GatewayManagementView: View {
                     headerSection
                     statusCard
                     actionCard
-                    commandOutputCard
                 }
                 .padding(24)
             }
@@ -145,34 +144,6 @@ struct GatewayManagementView: View {
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        .padding(20)
-        .background(theme.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(theme.cardBorder, lineWidth: 1)
-        )
-        .shadow(color: theme.shadowColor, radius: colorScheme == .dark ? 0 : 18, y: colorScheme == .dark ? 0 : 8)
-    }
-
-    private var commandOutputCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("最近命令输出")
-                .font(.headline)
-
-            ScrollView {
-                Text(manager.lastCommandOutput.nonEmptyOr("等待命令输出..."))
-                    .font(.system(.body, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(12)
-            }
-            .frame(minHeight: 220)
-            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(theme.inputBorder, lineWidth: 1)
-            )
         }
         .padding(20)
         .background(theme.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))

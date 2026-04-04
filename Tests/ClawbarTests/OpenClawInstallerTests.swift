@@ -172,6 +172,108 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertNotNil(installer.lastStatusRefreshDate)
     }
 
+    func testMergeStatusSnapshotSurfacesMissingGatewayService() {
+        let openClawSnapshot = OpenClawStatusSnapshot(
+            title: "OpenClaw 已安装",
+            detail: "status 已返回最近状态。",
+            excerpt: "status ok",
+            binaryPath: "/opt/homebrew/bin/openclaw"
+        )
+        let gatewaySnapshot = OpenClawGatewayStatusSnapshot(
+            state: .missing,
+            detail: "Gateway 服务尚未安装到 launchd。",
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            runtimeStatus: "unknown",
+            serviceLoaded: false,
+            serviceLabel: "LaunchAgent",
+            pid: nil,
+            missingUnit: true
+        )
+
+        let merged = OpenClawInstaller.mergeStatusSnapshot(openClawSnapshot, gatewaySnapshot: gatewaySnapshot)
+
+        XCTAssertEqual(merged.title, "OpenClaw 已安装")
+        XCTAssertEqual(merged.detail, "OpenClaw CLI 已安装，但 Gateway 服务尚未安装到 launchd。")
+        XCTAssertEqual(merged.excerpt, "status ok")
+    }
+
+    func testPrepareGatewayServiceReturnsReadyWhenInstallRegistersLaunchAgent() {
+        let result = OpenClawInstaller.prepareGatewayService(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            environment: [:],
+            configureGateway: { "generated-token" },
+            runGatewayCommand: { command, _, _ in
+                XCTAssertEqual(command, OpenClawInstaller.gatewayInstallCommand)
+                return OpenClawGatewayCommandResult(
+                    output: #"{"ok":true,"message":"Gateway service installed."}"#,
+                    exitStatus: 0,
+                    timedOut: false
+                )
+            },
+            fetchGatewayStatus: { _, _ in
+                OpenClawGatewayStatusSnapshot(
+                    state: .stopped,
+                    detail: "service not loaded",
+                    binaryPath: "/opt/homebrew/bin/openclaw",
+                    runtimeStatus: nil,
+                    serviceLoaded: false,
+                    serviceLabel: "LaunchAgent",
+                    pid: nil,
+                    missingUnit: false
+                )
+            }
+        )
+
+        XCTAssertTrue(result.isReady)
+        XCTAssertEqual(result.token, "generated-token")
+        XCTAssertNil(result.failureDetail)
+    }
+
+    func testPrepareGatewayServiceFailsWhenGatewayInstallLeavesMissingUnit() {
+        let result = OpenClawInstaller.prepareGatewayService(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            environment: [:],
+            configureGateway: { "generated-token" },
+            runGatewayCommand: { _, _, _ in
+                OpenClawGatewayCommandResult(
+                    output: #"{"ok":true,"message":"Gateway service installed."}"#,
+                    exitStatus: 0,
+                    timedOut: false
+                )
+            },
+            fetchGatewayStatus: { _, _ in
+                OpenClawGatewayStatusSnapshot(
+                    state: .missing,
+                    detail: "Bad request. Could not find service ai.openclaw.gateway",
+                    binaryPath: "/opt/homebrew/bin/openclaw",
+                    runtimeStatus: "unknown",
+                    serviceLoaded: false,
+                    serviceLabel: "LaunchAgent",
+                    pid: nil,
+                    missingUnit: true
+                )
+            }
+        )
+
+        XCTAssertFalse(result.isReady)
+        XCTAssertEqual(result.failureDetail, "Gateway 服务安装命令已完成，但 launchd 中仍未注册 ai.openclaw.gateway。")
+    }
+
+    func testPrepareGatewayServiceFailsWhenTokenConfigurationFails() {
+        struct TestError: LocalizedError {
+            var errorDescription: String? { "token write failed" }
+        }
+
+        let result = OpenClawInstaller.prepareGatewayService(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            environment: [:],
+            configureGateway: { throw TestError() }
+        )
+
+        XCTAssertFalse(result.isReady)
+        XCTAssertEqual(result.failureDetail, "Gateway token 初始化失败：token write failed")
+    }
+
     func testRefreshInstallationStatusUsesMissingOverride() {
         let installer = OpenClawInstaller(
             overrideState: OpenClawInstallerOverride(state: .missing),

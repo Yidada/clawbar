@@ -41,6 +41,25 @@ final class OpenClawGatewayManagerTests: XCTestCase {
         XCTAssertFalse(snapshot.serviceLoaded)
     }
 
+    func testMakeStatusSnapshotReturnsMissingStateWhenLaunchAgentIsMissing() {
+        let output = """
+        {"service":{"label":"LaunchAgent","loaded":false,"loadedText":"loaded","notLoadedText":"not loaded","runtime":{"status":"unknown","detail":"Bad request. Could not find service ai.openclaw.gateway","missingUnit":true}}}
+        """
+
+        let snapshot = OpenClawGatewayManager.makeStatusSnapshot(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            commandResult: OpenClawGatewayCommandResult(
+                output: output,
+                exitStatus: 0,
+                timedOut: false
+            )
+        )
+
+        XCTAssertEqual(snapshot.state, .missing)
+        XCTAssertTrue(snapshot.missingUnit)
+        XCTAssertEqual(snapshot.detail, "Bad request. Could not find service ai.openclaw.gateway")
+    }
+
     func testParseActionFeedbackReturnsSuccessMessageFromJson() {
         let output = #"{"ok":true,"result":"started","message":"Gateway scheduled for start."}"#
 

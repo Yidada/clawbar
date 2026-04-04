@@ -28,3 +28,4 @@ Recent history uses short, imperative commit subjects such as `Add OpenClaw inst
 
 ## Project Skills
 Treat project-local `.agents/skills/` as the source of truth for this repository. Do not assume `~/.codex/skills` or `~/.agents/skills` exists on another machine. Register every repo-relevant skill in `.agents/skills/registry.json`, keep project-owned skills in-tree, and vendor any external skill into `.agents/skills/<name>` before relying on it in docs or automation. Use `python3 Scripts/project_skills.py list`, `check`, and `sync` to manage the local skill inventory.
+When Clawbar or OpenClaw behavior is broken or unclear, use the project-local `clawbar-openclaw-logs` skill first to collect the active runtime logs before guessing at root cause.

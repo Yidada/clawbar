@@ -6,7 +6,7 @@ struct OpenClawInstallView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 12) {
-                if installer.isInstalling {
+                if installer.isBusy {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -24,7 +24,7 @@ struct OpenClawInstallView: View {
             }
 
             HStack {
-                Text("安装日志")
+                Text(installer.operationLogTitle)
                     .font(.headline)
 
                 Spacer()
@@ -37,7 +37,7 @@ struct OpenClawInstallView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    Text(installer.logText.isEmpty ? "等待安装输出..." : installer.logText)
+                    Text(installer.logText.isEmpty ? installer.emptyLogPlaceholder : installer.logText)
                         .font(.system(.body, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -53,7 +53,7 @@ struct OpenClawInstallView: View {
                 }
             }
 
-            Text("说明：官方安装脚本没有提供稳定的百分比进度，所以这里展示实时输出和当前状态。")
+            Text(installer.operationHintText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -24,12 +24,19 @@ struct MenuContentView: View {
 
             if installer.isInstalled {
                 openClawInfoSection
+
+                Button(installer.isUninstalling ? "卸载中..." : model.uninstallButtonTitle) {
+                    uninstallOpenClaw()
+                }
+                .disabled(installer.isBusy)
+                .accessibilityIdentifier(model.accessibilityIdentifier(for: .uninstallButton))
+
                 Divider()
             } else {
                 Button(installer.isInstalling ? "安装中..." : model.installButtonTitle) {
                     installOpenClaw()
                 }
-                .disabled(installer.isInstalling)
+                .disabled(installer.isBusy)
                 .accessibilityIdentifier(model.accessibilityIdentifier(for: .installButton))
             }
 
@@ -110,6 +117,12 @@ struct MenuContentView: View {
         openWindow(id: ClawbarWindow.openClawInstallID)
         NSApp.activate(ignoringOtherApps: true)
         installer.startInstallIfNeeded()
+    }
+
+    private func uninstallOpenClaw() {
+        openWindow(id: ClawbarWindow.openClawInstallID)
+        NSApp.activate(ignoringOtherApps: true)
+        installer.startUninstallIfNeeded()
     }
 
     private func openApplicationManagement() {

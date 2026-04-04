@@ -10,37 +10,10 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
-    func testWeChatCapabilityInstallCommandMatchesOfficialPluginFlow() {
+    func testUninstallCommandMatchesNonInteractiveFullRemovalFlow() {
         XCTAssertEqual(
-            OpenClawInstaller.wechatCapabilityInstallCommand,
-            "npx -y @tencent-weixin/openclaw-weixin-cli@latest install"
-        )
-    }
-
-    func testDidWeChatCapabilityInstallSucceedReturnsFalseForNonZeroExitStatus() {
-        XCTAssertFalse(
-            OpenClawInstaller.didWeChatCapabilityInstallSucceed(
-                exitStatus: 1,
-                output: ""
-            )
-        )
-    }
-
-    func testDidWeChatCapabilityInstallSucceedReturnsFalseForFailureOutput() {
-        XCTAssertFalse(
-            OpenClawInstaller.didWeChatCapabilityInstallSucceed(
-                exitStatus: 0,
-                output: "installation failed"
-            )
-        )
-    }
-
-    func testDidWeChatCapabilityInstallSucceedReturnsTrueForZeroExitStatusWithoutFailureSignals() {
-        XCTAssertTrue(
-            OpenClawInstaller.didWeChatCapabilityInstallSucceed(
-                exitStatus: 0,
-                output: "plugin installed successfully"
-            )
+            OpenClawInstaller.uninstallCommand,
+            "openclaw uninstall --all --yes --non-interactive && npm rm -g openclaw"
         )
     }
 
@@ -217,6 +190,7 @@ final class OpenClawInstallerTests: XCTestCase {
         let installer = OpenClawInstaller(autoStartTimer: false)
 
         XCTAssertFalse(installer.isInstalling)
+        XCTAssertFalse(installer.isUninstalling)
         XCTAssertFalse(installer.isInstalled)
         XCTAssertNil(installer.lastStatusRefreshDate)
         XCTAssertEqual(installer.statusText, "准备安装 OpenClaw。")

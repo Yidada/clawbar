@@ -1,5 +1,109 @@
 import Foundation
 
+private enum OpenClawOperation {
+    case install
+    case uninstall
+
+    var command: String {
+        switch self {
+        case .install:
+            OpenClawInstaller.installCommand
+        case .uninstall:
+            OpenClawInstaller.uninstallCommand
+        }
+    }
+
+    var actionName: String {
+        switch self {
+        case .install:
+            "安装"
+        case .uninstall:
+            "卸载"
+        }
+    }
+
+    var logURL: URL {
+        switch self {
+        case .install:
+            OpenClawInstaller.defaultLogURL(filename: "openclaw-install.log")
+        case .uninstall:
+            OpenClawInstaller.defaultLogURL(filename: "openclaw-uninstall.log")
+        }
+    }
+
+    var logTitle: String {
+        switch self {
+        case .install:
+            "安装日志"
+        case .uninstall:
+            "卸载日志"
+        }
+    }
+
+    var placeholderLogText: String {
+        switch self {
+        case .install:
+            "等待安装输出..."
+        case .uninstall:
+            "等待卸载输出..."
+        }
+    }
+
+    var idleStatusText: String {
+        switch self {
+        case .install:
+            "准备安装 OpenClaw。"
+        case .uninstall:
+            "准备卸载 OpenClaw。"
+        }
+    }
+
+    var idleDetailText: String {
+        switch self {
+        case .install:
+            "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
+        case .uninstall:
+            "点击按钮后会执行官方非交互卸载，并移除全局 openclaw CLI。"
+        }
+    }
+
+    var startingStatusText: String {
+        switch self {
+        case .install:
+            "正在启动 OpenClaw 安装..."
+        case .uninstall:
+            "正在启动 OpenClaw 卸载..."
+        }
+    }
+
+    var startingDetailText: String {
+        switch self {
+        case .install:
+            "这会执行官方安装脚本，并把输出实时写入日志窗口。"
+        case .uninstall:
+            "这会执行官方非交互卸载命令，并把输出实时写入日志窗口。"
+        }
+    }
+
+    var runningStatusText: String {
+        switch self {
+        case .install:
+            "正在安装 OpenClaw..."
+        case .uninstall:
+            "正在卸载 OpenClaw..."
+        }
+    }
+
+    var runningDetailText: String {
+        switch self {
+        case .install:
+            "官方脚本没有稳定的百分比接口，所以这里显示实时输出和当前状态。"
+        case .uninstall:
+            "卸载过程会清理本机 OpenClaw 数据，并移除全局 CLI。"
+        }
+    }
+}
+
 struct OpenClawStatusSnapshot: Equatable, Sendable {
     let title: String
     let detail: String
@@ -39,15 +143,15 @@ struct OpenClawInstallerOverride: Equatable, Sendable {
 }
 
 enum OpenClawInstallerError: LocalizedError {
-    case installationFailed(status: Int32, logURL: URL)
-    case launchFailed(underlyingError: Error)
+    case commandFailed(operationName: String, status: Int32, logURL: URL)
+    case launchFailed(operationName: String, underlyingError: Error)
 
     var errorDescription: String? {
         switch self {
-        case let .installationFailed(status, logURL):
-            "OpenClaw 安装失败，退出码 \(status)。日志位置：\(logURL.path)"
-        case let .launchFailed(underlyingError):
-            "无法启动 OpenClaw 安装：\(underlyingError.localizedDescription)"
+        case let .commandFailed(operationName, status, logURL):
+            "OpenClaw \(operationName)失败，退出码 \(status)。日志位置：\(logURL.path)"
+        case let .launchFailed(operationName, underlyingError):
+            "无法启动 OpenClaw \(operationName)：\(underlyingError.localizedDescription)"
         }
     }
 }
@@ -62,19 +166,20 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let defaultRefreshInterval: TimeInterval = 30
     nonisolated static let installScriptURL = URL(string: "https://openclaw.ai/install.sh")!
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
-    nonisolated static let wechatCapabilityInstallCommand = "npx -y @tencent-weixin/openclaw-weixin-cli@latest install"
+    nonisolated static let uninstallCommand = "openclaw uninstall --all --yes --non-interactive && npm rm -g openclaw"
     nonisolated static let detectCommand = "command -v openclaw"
     nonisolated static let statusCommand = "openclaw status"
 
     @Published private(set) var isInstalling = false
+    @Published private(set) var isUninstalling = false
     @Published private(set) var isInstalled = false
     @Published private(set) var isRefreshingStatus = false
-    @Published private(set) var statusText = "准备安装 OpenClaw。"
-    @Published private(set) var detailText = "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
+    @Published private(set) var statusText = OpenClawOperation.install.idleStatusText
+    @Published private(set) var detailText = OpenClawOperation.install.idleDetailText
     @Published private(set) var installedBinaryPath: String?
     @Published private(set) var statusExcerpt: String?
     @Published private(set) var logText = ""
-    @Published private(set) var lastLogURL = OpenClawInstaller.defaultLogURL()
+    @Published private(set) var lastLogURL = OpenClawOperation.install.logURL
     @Published private(set) var lastStatusRefreshDate: Date?
 
     private var activeProcess: Process?
@@ -83,6 +188,7 @@ final class OpenClawInstaller: ObservableObject {
     private let nowProvider: @Sendable () -> Date
     private let overrideState: OpenClawInstallerOverride?
     private var refreshTimer: Timer?
+    private var lastOperation: OpenClawOperation = .install
 
     init(
         refreshInterval: TimeInterval = OpenClawInstaller.defaultRefreshInterval,
@@ -97,6 +203,27 @@ final class OpenClawInstaller: ObservableObject {
         if autoStartTimer, overrideState == nil {
             startPeriodicRefresh()
         }
+    }
+
+    var isBusy: Bool {
+        isInstalling || isUninstalling
+    }
+
+    var operationLogTitle: String {
+        activeOperation.logTitle
+    }
+
+    var operationHintText: String {
+        switch activeOperation {
+        case .install:
+            "说明：官方安装脚本没有提供稳定的百分比进度，所以这里展示实时输出和当前状态。"
+        case .uninstall:
+            "说明：卸载会先执行 OpenClaw 官方非交互卸载，再移除通过安装脚本落下的全局 CLI。"
+        }
+    }
+
+    var emptyLogPlaceholder: String {
+        activeOperation.placeholderLogText
     }
 
     func refreshInstallationStatus(force: Bool = false) {
@@ -132,14 +259,14 @@ final class OpenClawInstaller: ObservableObject {
                 self.installedBinaryPath = path
                 self.statusExcerpt = snapshot?.excerpt
 
-                guard !self.isInstalling else { return }
+                guard !self.isBusy else { return }
 
                 if let snapshot {
                     self.statusText = snapshot.title
                     self.detailText = snapshot.detail
                 } else {
-                    self.statusText = "准备安装 OpenClaw。"
-                    self.detailText = "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
+                    self.statusText = OpenClawOperation.install.idleStatusText
+                    self.detailText = OpenClawOperation.install.idleDetailText
                 }
             }
         }
@@ -154,15 +281,15 @@ final class OpenClawInstaller: ObservableObject {
             isInstalled = false
             installedBinaryPath = nil
             statusExcerpt = nil
-            if !isInstalling {
-                statusText = "准备安装 OpenClaw。"
-                detailText = "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
+            if !isBusy {
+                statusText = OpenClawOperation.install.idleStatusText
+                detailText = OpenClawOperation.install.idleDetailText
             }
         case let .installed(snapshot):
             isInstalled = true
             installedBinaryPath = snapshot.binaryPath
             statusExcerpt = snapshot.excerpt
-            if !isInstalling {
+            if !isBusy {
                 statusText = snapshot.title
                 detailText = snapshot.detail
             }
@@ -170,53 +297,32 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     func startInstallIfNeeded() {
-        if isInstalling {
-            statusText = "OpenClaw 正在安装中。"
-            detailText = "进度窗口会持续显示实时输出。"
+        if isBusy {
+            statusText = "OpenClaw 正在处理中。"
+            detailText = "请等待当前安装或卸载流程结束。"
             return
         }
 
-        let logURL = Self.defaultLogURL()
-        lastLogURL = logURL
-        logText = "$ \(Self.installCommand)\n\n"
-        statusText = "正在启动 OpenClaw 安装..."
-        detailText = "这会执行官方安装脚本，并把输出实时写入日志窗口。"
-
-        do {
-            let process = try Self.makeProcess(
-                logURL: logURL,
-                environment: Self.installationEnvironment(base: ProcessInfo.processInfo.environment),
-                outputHandler: { [weak self] chunk in
-                    Task { @MainActor in
-                        guard let self else { return }
-                        self.appendLog(chunk)
-                    }
-                },
-                completion: { [weak self] result in
-                    Task { @MainActor in
-                        guard let self else { return }
-                        self.finishInstall(with: result, logURL: logURL)
-                    }
-                }
-            )
-
-            try process.run()
-            activeProcess = process
-            isInstalling = true
-            statusText = "正在安装 OpenClaw..."
-            detailText = "官方脚本没有稳定的百分比接口，所以这里显示实时输出和当前状态。"
-        } catch {
-            finishInstall(with: .failure(OpenClawInstallerError.launchFailed(underlyingError: error)), logURL: logURL)
-        }
+        startOperation(.install)
     }
 
-    nonisolated static func defaultLogURL() -> URL {
+    func startUninstallIfNeeded() {
+        if isBusy {
+            statusText = "OpenClaw 正在处理中。"
+            detailText = "请等待当前安装或卸载流程结束。"
+            return
+        }
+
+        startOperation(.uninstall)
+    }
+
+    nonisolated static func defaultLogURL(filename: String) -> URL {
         let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library")
         return libraryURL
             .appending(path: "Logs")
             .appending(path: "Clawbar")
-            .appending(path: "openclaw-install.log")
+            .appending(path: filename)
     }
 
     nonisolated static func installationEnvironment(base: [String: String]) -> [String: String] {
@@ -264,16 +370,6 @@ final class OpenClawInstaller: ObservableObject {
 
         let index = normalized.index(normalized.startIndex, offsetBy: maxLength - 1)
         return String(normalized[..<index]) + "…"
-    }
-
-    nonisolated static func didWeChatCapabilityInstallSucceed(
-        exitStatus: Int32,
-        output: String
-    ) -> Bool {
-        guard exitStatus == 0 else { return false }
-
-        let normalizedOutput = output.lowercased()
-        return !normalizedOutput.contains("error") && !normalizedOutput.contains("failed")
     }
 
     nonisolated static func shouldRefreshStatus(
@@ -332,6 +428,7 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     private nonisolated static func makeProcess(
+        command: String,
         logURL: URL,
         environment: [String: String],
         outputHandler: @escaping @Sendable (String) -> Void,
@@ -352,7 +449,7 @@ final class OpenClawInstaller: ObservableObject {
         }
 
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-lc", installCommand]
+        process.arguments = ["-lc", command]
         process.environment = environment
         process.standardOutput = outputPipe
         process.standardError = outputPipe
@@ -363,7 +460,7 @@ final class OpenClawInstaller: ObservableObject {
             if process.terminationStatus == 0 {
                 completion(.success(()))
             } else {
-                completion(.failure(OpenClawInstallerError.installationFailed(status: process.terminationStatus, logURL: logURL)))
+                completion(.failure(OpenClawInstallerError.commandFailed(operationName: operationName(for: command), status: process.terminationStatus, logURL: logURL)))
             }
         }
 
@@ -459,6 +556,49 @@ final class OpenClawInstaller: ObservableObject {
         logText += chunk
     }
 
+    private var activeOperation: OpenClawOperation {
+        lastOperation
+    }
+
+    private func startOperation(_ operation: OpenClawOperation) {
+        let logURL = operation.logURL
+        let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
+        lastOperation = operation
+        lastLogURL = logURL
+        logText = "$ \(operation.command)\n\n"
+        statusText = operation.startingStatusText
+        detailText = operation.startingDetailText
+
+        do {
+            let process = try Self.makeProcess(
+                command: operation.command,
+                logURL: logURL,
+                environment: environment,
+                outputHandler: { [weak self] chunk in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.appendLog(chunk)
+                    }
+                },
+                completion: { [weak self] result in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.finishOperation(operation, with: result, logURL: logURL)
+                    }
+                }
+            )
+
+            try process.run()
+            activeProcess = process
+            isInstalling = operation == .install
+            isUninstalling = operation == .uninstall
+            statusText = operation.runningStatusText
+            detailText = operation.runningDetailText
+        } catch {
+            finishOperation(operation, with: .failure(OpenClawInstallerError.launchFailed(operationName: operation.actionName, underlyingError: error)), logURL: logURL)
+        }
+    }
+
     private func finishInstall(with result: Result<Void, Error>, logURL: URL) {
         activeProcess = nil
         outputHandle = nil
@@ -468,7 +608,6 @@ final class OpenClawInstaller: ObservableObject {
         case .success:
             let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
             let openClawPath = Self.detectInstalledBinaryPath(environment: environment)
-            let npxPath = Self.detectCommandPath("command -v npx", environment: environment)
 
             guard openClawPath != nil else {
                 isInstalling = false
@@ -479,61 +618,22 @@ final class OpenClawInstaller: ObservableObject {
                 return
             }
 
-            guard npxPath != nil else {
-                isInstalling = false
-                statusText = "OpenClaw 安装完成。"
-                detailText = "安装脚本执行结束；未检测到 npx，已跳过微信能力自动安装。"
-                logText += "\n[Clawbar] 未检测到 npx，已跳过微信能力自动安装。\n"
-                refreshInstallationStatus(force: true)
-                return
+            let snapshot = openClawPath.map {
+                Self.fetchStatusSnapshot(binaryPath: $0, environment: environment)
             }
-
-            statusText = "OpenClaw 安装完成，正在安装微信能力..."
-            detailText = "主安装已结束，Clawbar 正在补装官方 WeixinClawBot 插件。"
-            logText += "\n[Clawbar] OpenClaw 安装完成，开始自动安装微信能力。\n"
-            runPostInstallWeChatCapability(environment: environment)
+            isInstalling = false
+            isInstalled = true
+            installedBinaryPath = openClawPath
+            statusExcerpt = snapshot?.excerpt
+            lastStatusRefreshDate = nowProvider()
+            statusText = "OpenClaw 安装完成。"
+            detailText = "下一步可前往 Channels 页，按需安装和绑定微信能力。"
+            logText += "\n[Clawbar] OpenClaw 安装完成；微信能力已改为在 Channels 页独立安装。\n"
         case let .failure(error):
             isInstalling = false
             statusText = "OpenClaw 安装失败。"
             detailText = error.localizedDescription
             logText += "\n[Clawbar] \(error.localizedDescription)\n"
-        }
-    }
-
-    private func runPostInstallWeChatCapability(environment: [String: String]) {
-        let command = Self.wechatCapabilityInstallCommand
-        logText += "$ \(command)\n\n"
-
-        Task.detached(priority: .utility) {
-            let result = Self.runCommand(command, environment: environment, timeout: 300)
-
-            await MainActor.run {
-                self.isInstalling = false
-                self.logText += result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "(no output)"
-                    : result.output
-
-                if result.timedOut {
-                    self.statusText = "OpenClaw 安装完成。"
-                    self.detailText = "微信能力自动安装超时；稍后仍可在 Channels 页单独安装。"
-                    self.logText += "\n[Clawbar] 微信能力自动安装超时。\n"
-                } else {
-                    if !Self.didWeChatCapabilityInstallSucceed(
-                        exitStatus: result.exitStatus,
-                        output: result.output
-                    ) {
-                        self.statusText = "OpenClaw 安装完成。"
-                        self.detailText = "微信能力自动安装可能失败；稍后可在 Channels 页重试。"
-                        self.logText += "\n[Clawbar] 微信能力自动安装返回了失败信号，请检查上方日志。\n"
-                    } else {
-                        self.statusText = "OpenClaw 和微信能力已安装。"
-                        self.detailText = "下一步可以直接去 Channels 页开始绑定微信。"
-                        self.logText += "\n[Clawbar] 微信能力自动安装完成。\n"
-                    }
-                }
-
-                self.refreshInstallationStatus(force: true)
-            }
         }
     }
 
@@ -547,6 +647,46 @@ final class OpenClawInstaller: ObservableObject {
         }
         timer.tolerance = min(5, refreshInterval * 0.2)
         refreshTimer = timer
+    }
+
+    private func finishOperation(_ operation: OpenClawOperation, with result: Result<Void, Error>, logURL: URL) {
+        switch operation {
+        case .install:
+            finishInstall(with: result, logURL: logURL)
+        case .uninstall:
+            finishUninstall(with: result, logURL: logURL)
+        }
+    }
+
+    private func finishUninstall(with result: Result<Void, Error>, logURL: URL) {
+        activeProcess = nil
+        outputHandle = nil
+        lastLogURL = logURL
+        isInstalling = false
+        isUninstalling = false
+
+        switch result {
+        case .success:
+            isInstalled = false
+            installedBinaryPath = nil
+            statusExcerpt = nil
+            lastStatusRefreshDate = nowProvider()
+            statusText = "OpenClaw 已卸载。"
+            detailText = "官方卸载流程和全局 CLI 移除已完成。"
+            logText += "\n[Clawbar] OpenClaw 卸载完成。\n"
+        case let .failure(error):
+            statusText = "OpenClaw 卸载失败。"
+            detailText = error.localizedDescription
+            logText += "\n[Clawbar] \(error.localizedDescription)\n"
+            refreshInstallationStatus(force: true)
+        }
+    }
+
+    private nonisolated static func operationName(for command: String) -> String {
+        if command == uninstallCommand {
+            return OpenClawOperation.uninstall.actionName
+        }
+        return OpenClawOperation.install.actionName
     }
 }
 

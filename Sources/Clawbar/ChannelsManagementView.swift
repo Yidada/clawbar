@@ -38,7 +38,7 @@ enum ChannelKind: String, CaseIterable, Identifiable {
         case .feishu:
             "Webhook、应用凭证和群聊路由。"
         case .wechat:
-            "内置官方 WeixinClawBot 安装和绑定流程，用户只需要扫码。"
+            "按需安装官方 WeixinClawBot，并在需要时单独绑定。"
         }
     }
 }
@@ -94,7 +94,7 @@ struct ChannelsManagementView: View {
                 Text("Channels 管理")
                     .font(.system(size: 30, weight: .semibold))
 
-                Text("集中维护飞书和微信通道；微信能力由 Clawbar 内置安装，用户只需要开始绑定并扫码。")
+                Text("集中维护飞书和微信通道；微信能力与 OpenClaw 主安装解耦，按需安装后再绑定。")
                     .font(.subheadline)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -249,7 +249,7 @@ struct ChannelsManagementView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                guideRow("Clawbar 内置执行官方安装命令，不再让用户手工复制配置。")
+                guideRow("微信能力独立于 OpenClaw 主安装，失败后可在这里单独重试。")
                 guideRow("开始绑定后会自动拉起 Terminal，执行 `openclaw channels login --channel openclaw-weixin`。")
                 guideRow("用户实际只需要在微信里扫码；当前官方渠道只支持私聊。")
             }

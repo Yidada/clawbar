@@ -3,7 +3,7 @@ import ClawbarKit
 
 enum ClawbarWindow {
     static let openClawInstallID = "openclaw-install"
-    static let openClawInstallTitle = "OpenClaw 安装"
+    static let openClawInstallTitle = "OpenClaw 操作"
     static let applicationManagementID = "application-management"
 }
 

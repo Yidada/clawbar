@@ -97,6 +97,7 @@ if [[ "$VERIFY_STATE" == "installed" ]]; then
         --expect "/opt/homebrew/bin/openclaw"
         --expect "status 已返回最近状态。"
         --expect "plugins.allow is empty; discovered non-bundled plugins."
+        --expect "卸载 OpenClaw"
     )
 else
     VERIFY_ARGS+=(

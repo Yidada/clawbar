@@ -35,6 +35,7 @@ final class OpenClawGatewayCredentialStore: @unchecked Sendable {
     private let runCommand: CommandRunner
     private let tokenGenerator: TokenGenerator
     private let storageDirectoryURL: URL
+    private let configFileURL: URL
     private let fileManager: FileManager
 
     init(
@@ -42,12 +43,14 @@ final class OpenClawGatewayCredentialStore: @unchecked Sendable {
         runCommand: @escaping CommandRunner = OpenClawGatewayCredentialStore.runCommand,
         tokenGenerator: @escaping TokenGenerator = OpenClawGatewayCredentialStore.makeRandomToken,
         storageDirectoryURL: URL = OpenClawGatewayCredentialStore.defaultStorageDirectoryURL(),
+        configFileURL: URL = OpenClawGatewayCredentialStore.defaultConfigFileURL(),
         fileManager: FileManager = .default
     ) {
         self.environmentProvider = environmentProvider
         self.runCommand = runCommand
         self.tokenGenerator = tokenGenerator
         self.storageDirectoryURL = storageDirectoryURL
+        self.configFileURL = configFileURL
         self.fileManager = fileManager
     }
 
@@ -76,13 +79,25 @@ final class OpenClawGatewayCredentialStore: @unchecked Sendable {
             .appending(path: ".clawbar")
     }
 
-    nonisolated static func requiredConfigCommands(token: String) -> [String] {
+    nonisolated static func defaultConfigFileURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".openclaw")
+            .appending(path: "openclaw.json")
+    }
+
+    nonisolated static func desiredGatewayConfiguration(token: String) -> [(path: String, value: String)] {
         [
-            "openclaw config set gateway.mode local",
-            "openclaw config set gateway.auth.mode token",
-            "openclaw config set gateway.auth.token \(shellQuote(token))",
-            "openclaw config set gateway.remote.token \(shellQuote(token))",
+            ("gateway.mode", "local"),
+            ("gateway.auth.mode", "token"),
+            ("gateway.auth.token", token),
+            ("gateway.remote.token", token),
         ]
+    }
+
+    nonisolated static func requiredConfigCommands(token: String) -> [String] {
+        desiredGatewayConfiguration(token: token).map { entry in
+            "openclaw config set \(entry.path) \(shellQuote(entry.value))"
+        }
     }
 
     private var tokenFileURL: URL {
@@ -110,13 +125,38 @@ final class OpenClawGatewayCredentialStore: @unchecked Sendable {
     }
 
     private func syncGatewayConfiguration(token: String, environment: [String: String]) throws {
-        for command in Self.requiredConfigCommands(token: token) {
+        let commands = gatewayConfigurationCommandsToApply(token: token)
+
+        for command in commands {
             let result = runCommand(command, environment, 10)
             guard !result.timedOut, result.exitStatus == 0 else {
                 let detail = result.timedOut ? "命令超时。" : result.output.nonEmptyOr("命令返回了非零退出码 \(result.exitStatus)。")
                 throw OpenClawGatewayCredentialStoreError.configWriteFailed(command: command, detail: detail)
             }
         }
+    }
+
+    private func gatewayConfigurationCommandsToApply(token: String) -> [String] {
+        guard let currentConfig = loadConfigDictionary() else {
+            return Self.requiredConfigCommands(token: token)
+        }
+
+        return Self.desiredGatewayConfiguration(token: token).compactMap { entry in
+            let currentValue = Self.value(at: entry.path, in: currentConfig)
+            guard currentValue != entry.value else {
+                return nil
+            }
+
+            return "openclaw config set \(entry.path) \(Self.shellQuote(entry.value))"
+        }
+    }
+
+    private func loadConfigDictionary() -> [String: Any]? {
+        guard let data = try? Data(contentsOf: configFileURL) else {
+            return nil
+        }
+
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     private func persistToken(_ token: String) throws {
@@ -152,6 +192,21 @@ final class OpenClawGatewayCredentialStore: @unchecked Sendable {
         let left = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         let right = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         return "clawbar_\(left)\(right)"
+    }
+
+    private nonisolated static func value(at path: String, in dictionary: [String: Any]) -> String? {
+        let components = path.split(separator: ".").map(String.init)
+        guard !components.isEmpty else { return nil }
+
+        var current: Any = dictionary
+        for component in components {
+            guard let nested = current as? [String: Any] else {
+                return nil
+            }
+            current = nested[component] as Any
+        }
+
+        return current as? String
     }
 
     private nonisolated static func shellQuote(_ text: String) -> String {

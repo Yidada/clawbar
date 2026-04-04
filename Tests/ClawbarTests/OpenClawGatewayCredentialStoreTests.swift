@@ -5,6 +5,7 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
     func testEnsureGatewayTokenConfiguredUsesStoredTokenAndSyncsConfig() throws {
         let tempDirectory = try makeTemporaryDirectory()
         let storageDirectory = tempDirectory.appending(path: ".clawbar")
+        let configFileURL = tempDirectory.appending(path: ".openclaw").appending(path: "openclaw.json")
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         try "stored-token".write(to: storageDirectory.appending(path: "openclaw-gateway-token"), atomically: true, encoding: .utf8)
 
@@ -20,7 +21,8 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
                 return OpenClawGatewayCommandResult(output: "", exitStatus: 0, timedOut: false)
             },
             tokenGenerator: { "generated-token" },
-            storageDirectoryURL: storageDirectory
+            storageDirectoryURL: storageDirectory,
+            configFileURL: configFileURL
         )
 
         let token = try store.ensureGatewayTokenConfigured()
@@ -28,8 +30,8 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
         XCTAssertEqual(token, "stored-token")
         XCTAssertEqual(recorder.commands, [
             "command -v openclaw",
-            "openclaw config set gateway.mode local",
-            "openclaw config set gateway.auth.mode token",
+            "openclaw config set gateway.mode 'local'",
+            "openclaw config set gateway.auth.mode 'token'",
             "openclaw config set gateway.auth.token 'stored-token'",
             "openclaw config set gateway.remote.token 'stored-token'",
         ])
@@ -38,6 +40,7 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
     func testEnsureGatewayTokenConfiguredImportsConfigTokenWhenStoreIsEmpty() throws {
         let tempDirectory = try makeTemporaryDirectory()
         let storageDirectory = tempDirectory.appending(path: ".clawbar")
+        let configFileURL = tempDirectory.appending(path: ".openclaw").appending(path: "openclaw.json")
 
         let recorder = CommandRecorder()
         let store = OpenClawGatewayCredentialStore(
@@ -54,7 +57,8 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
                 }
             },
             tokenGenerator: { "generated-token" },
-            storageDirectoryURL: storageDirectory
+            storageDirectoryURL: storageDirectory,
+            configFileURL: configFileURL
         )
 
         let token = try store.ensureGatewayTokenConfigured()
@@ -67,6 +71,7 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
     func testEnsureGatewayTokenConfiguredGeneratesTokenWhenNothingConfigured() throws {
         let tempDirectory = try makeTemporaryDirectory()
         let storageDirectory = tempDirectory.appending(path: ".clawbar")
+        let configFileURL = tempDirectory.appending(path: ".openclaw").appending(path: "openclaw.json")
 
         let recorder = CommandRecorder()
         let store = OpenClawGatewayCredentialStore(
@@ -83,7 +88,8 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
                 }
             },
             tokenGenerator: { "generated-token" },
-            storageDirectoryURL: storageDirectory
+            storageDirectoryURL: storageDirectory,
+            configFileURL: configFileURL
         )
 
         let token = try store.ensureGatewayTokenConfigured()
@@ -92,6 +98,100 @@ final class OpenClawGatewayCredentialStoreTests: XCTestCase {
         XCTAssertEqual(store.storedToken(), "generated-token")
         XCTAssertTrue(recorder.commands.contains("openclaw config set gateway.auth.token 'generated-token'"))
         XCTAssertTrue(recorder.commands.contains("openclaw config set gateway.remote.token 'generated-token'"))
+    }
+
+    func testEnsureGatewayTokenConfiguredSkipsConfigWritesWhenFileAlreadyMatches() throws {
+        let tempDirectory = try makeTemporaryDirectory()
+        let storageDirectory = tempDirectory.appending(path: ".clawbar")
+        let configDirectory = tempDirectory.appending(path: ".openclaw")
+        let configFileURL = configDirectory.appending(path: "openclaw.json")
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try "stored-token".write(to: storageDirectory.appending(path: "openclaw-gateway-token"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "gateway": {
+            "mode": "local",
+            "auth": {
+              "mode": "token",
+              "token": "stored-token"
+            },
+            "remote": {
+              "token": "stored-token"
+            }
+          }
+        }
+        """.write(to: configFileURL, atomically: true, encoding: .utf8)
+
+        let recorder = CommandRecorder()
+        let store = OpenClawGatewayCredentialStore(
+            environmentProvider: { [:] },
+            runCommand: { command, _, _ in
+                recorder.commands.append(command)
+                if command == "command -v openclaw" {
+                    return OpenClawGatewayCommandResult(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)
+                }
+
+                return OpenClawGatewayCommandResult(output: "", exitStatus: 0, timedOut: false)
+            },
+            tokenGenerator: { "generated-token" },
+            storageDirectoryURL: storageDirectory,
+            configFileURL: configFileURL
+        )
+
+        let token = try store.ensureGatewayTokenConfigured()
+
+        XCTAssertEqual(token, "stored-token")
+        XCTAssertEqual(recorder.commands, ["command -v openclaw"])
+    }
+
+    func testEnsureGatewayTokenConfiguredOnlyWritesMismatchedGatewayValues() throws {
+        let tempDirectory = try makeTemporaryDirectory()
+        let storageDirectory = tempDirectory.appending(path: ".clawbar")
+        let configDirectory = tempDirectory.appending(path: ".openclaw")
+        let configFileURL = configDirectory.appending(path: "openclaw.json")
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try "stored-token".write(to: storageDirectory.appending(path: "openclaw-gateway-token"), atomically: true, encoding: .utf8)
+        try """
+        {
+          "gateway": {
+            "mode": "local",
+            "auth": {
+              "mode": "token",
+              "token": "old-token"
+            },
+            "remote": {
+              "token": "old-token"
+            }
+          }
+        }
+        """.write(to: configFileURL, atomically: true, encoding: .utf8)
+
+        let recorder = CommandRecorder()
+        let store = OpenClawGatewayCredentialStore(
+            environmentProvider: { [:] },
+            runCommand: { command, _, _ in
+                recorder.commands.append(command)
+                if command == "command -v openclaw" {
+                    return OpenClawGatewayCommandResult(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)
+                }
+
+                return OpenClawGatewayCommandResult(output: "", exitStatus: 0, timedOut: false)
+            },
+            tokenGenerator: { "generated-token" },
+            storageDirectoryURL: storageDirectory,
+            configFileURL: configFileURL
+        )
+
+        let token = try store.ensureGatewayTokenConfigured()
+
+        XCTAssertEqual(token, "stored-token")
+        XCTAssertEqual(recorder.commands, [
+            "command -v openclaw",
+            "openclaw config set gateway.auth.token 'stored-token'",
+            "openclaw config set gateway.remote.token 'stored-token'",
+        ])
     }
 
     private func makeTemporaryDirectory() throws -> URL {

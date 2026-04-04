@@ -1,10 +1,25 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`clawbar` is a Swift Package Manager macOS menu bar app. Core logic lives in `Sources/ClawbarKit`, while the app entry point and SwiftUI/AppKit integration live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`. Developer scripts are in `Scripts/`, run artifacts are written to `Artifacts/`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`. `References/` contains upstream material for comparison, not the main codepath. When work touches OpenClaw-specific behavior, installation flow, protocol details, or API assumptions, inspect `References/openclaw` source code first and treat it as the primary reference for OpenClaw implementation details.
+`clawbar` is a Swift Package Manager macOS menu bar app. Core logic lives in `Sources/ClawbarKit`, while the app entry point and SwiftUI/AppKit integration live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`. Developer scripts are in `Scripts/`, run artifacts are written to `Artifacts/`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`.
+
+`References/` is for committed, pinned upstream snapshots and design material that contributors or agents need locally for comparison. It is not the main codepath, and it is not a scratch space for temporary clones, worktrees, build outputs, or notes. When work touches OpenClaw-specific behavior, installation flow, protocol details, or API assumptions, inspect `References/openclaw` source code first and treat it as the primary reference for OpenClaw implementation details.
 
 ## OpenClaw Reference Workflow
-For any task that depends on OpenClaw internals, prefer reading the upstream implementation under `References/openclaw` over relying on memory, screenshots, or stale notes. If the task depends on current OpenClaw interfaces, endpoint shapes, CLI flags, config formats, or other integration details that may have changed, refresh `References/openclaw` from the upstream source before implementing or documenting behavior. Keep reference-sync updates separate from Clawbar behavior changes unless the task is explicitly about syncing the OpenClaw reference snapshot.
+For any task that depends on OpenClaw internals, prefer reading the upstream implementation under `References/openclaw` over relying on memory, screenshots, or stale notes. If the task depends on current OpenClaw interfaces, endpoint shapes, CLI flags, config formats, or other integration details that may have changed, refresh `References/openclaw` from the upstream source before implementing or documenting behavior.
+
+Treat `References/openclaw` as a vendored snapshot, not as an active development target. Keep reference-sync updates separate from Clawbar behavior changes unless the task is explicitly about syncing the OpenClaw reference snapshot. Sync commits should clearly identify the upstream repo and pinned commit SHA they came from.
+
+## Reference Management
+`References/` should usually be committed when Clawbar depends on those files for integration work. Leaving critical reference material uncommitted makes agent behavior, code review, and future debugging non-reproducible across machines and CI.
+
+Prefer this management order:
+
+- Best current default: keep a committed snapshot under `References/<name>` and refresh it intentionally in a dedicated commit.
+- If the reference becomes too large or churns too often: convert it to a pinned git submodule or another scripted sync mechanism.
+- Avoid ad hoc nested clones or local-only worktrees inside the repo; they create ambiguous ownership and noisy diffs.
+
+Keep transient material out of `References/`. Use `Artifacts/` for generated outputs, `docs/` for investigation notes, and local ignore rules for throwaway worktrees or caches.
 
 ## Build, Test, and Development Commands
 Use the package root for all commands:

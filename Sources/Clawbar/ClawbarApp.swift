@@ -13,6 +13,7 @@ struct ClawbarApp: App {
     private let configuration = AppConfiguration.makeDefault()
     private let installer = OpenClawInstaller.shared
     private let gatewayManager = OpenClawGatewayManager.shared
+    private let tuiManager = OpenClawTUIManager.shared
 
     @SceneBuilder
     var body: some Scene {
@@ -26,7 +27,8 @@ struct ClawbarApp: App {
             MenuContentView(
                 model: .makeDefault(configuration: configuration),
                 installer: installer,
-                gatewayManager: gatewayManager
+                gatewayManager: gatewayManager,
+                tuiManager: tuiManager
             )
         } label: {
             Label(configuration.menuBarTitle, systemImage: configuration.systemImageName)

@@ -6,6 +6,7 @@ struct MenuContentView: View {
     let model: MenuContentModel
     @ObservedObject var installer: OpenClawInstaller
     @ObservedObject var gatewayManager: OpenClawGatewayManager
+    @ObservedObject var tuiManager: OpenClawTUIManager
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -24,6 +25,12 @@ struct MenuContentView: View {
 
             if installer.isInstalled {
                 openClawInfoSection
+
+                Button(tuiManager.isLaunching ? "正在打开 TUI..." : model.tuiDebugButtonTitle) {
+                    launchOpenClawTUI()
+                }
+                .disabled(tuiManager.isLaunching)
+                .accessibilityIdentifier(model.accessibilityIdentifier(for: .tuiDebugButton))
 
                 Button(installer.isUninstalling ? "卸载中..." : model.uninstallButtonTitle) {
                     uninstallOpenClaw()
@@ -123,6 +130,10 @@ struct MenuContentView: View {
         openWindow(id: ClawbarWindow.openClawInstallID)
         NSApp.activate(ignoringOtherApps: true)
         installer.startUninstallIfNeeded()
+    }
+
+    private func launchOpenClawTUI() {
+        tuiManager.launchTUI()
     }
 
     private func openApplicationManagement() {

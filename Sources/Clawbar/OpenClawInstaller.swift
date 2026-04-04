@@ -618,6 +618,13 @@ final class OpenClawInstaller: ObservableObject {
                 return
             }
 
+            do {
+                let token = try OpenClawGatewayCredentialStore.shared.ensureGatewayTokenConfigured()
+                logText += "\n[Clawbar] 已为 Gateway 准备本地 token：\(token.prefix(12))...\n"
+            } catch {
+                logText += "\n[Clawbar] Gateway token 初始化失败：\(error.localizedDescription)\n"
+            }
+
             let snapshot = openClawPath.map {
                 Self.fetchStatusSnapshot(binaryPath: $0, environment: environment)
             }

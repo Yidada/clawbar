@@ -11,6 +11,7 @@ final class AppConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.helloTitle, "Hello World")
         XCTAssertEqual(configuration.installLabel, "安装 OpenClaw")
         XCTAssertEqual(configuration.uninstallLabel, "卸载 OpenClaw")
+        XCTAssertEqual(configuration.tuiDebugLabel, "启动 TUI 调试终端")
         XCTAssertEqual(configuration.applicationLabel, "Settings")
         XCTAssertEqual(configuration.applicationWindowTitle, "Settings")
         XCTAssertEqual(configuration.providerLabel, "管理 Provider")

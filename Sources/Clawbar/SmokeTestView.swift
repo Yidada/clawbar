@@ -6,6 +6,7 @@ struct SmokeTestView: View {
     let model: MenuContentModel
     @ObservedObject var installer: OpenClawInstaller
     @ObservedObject var gatewayManager: OpenClawGatewayManager
+    @ObservedObject var tuiManager: OpenClawTUIManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -21,7 +22,8 @@ struct SmokeTestView: View {
             MenuContentView(
                 model: model,
                 installer: installer,
-                gatewayManager: gatewayManager
+                gatewayManager: gatewayManager,
+                tuiManager: tuiManager
             )
         }
         .padding(20)

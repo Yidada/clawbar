@@ -10,15 +10,18 @@ final class SmokeTestWindowPresenter {
     private let configuration: AppConfiguration
     private let installer: OpenClawInstaller
     private let gatewayManager: OpenClawGatewayManager
+    private let tuiManager: OpenClawTUIManager
 
     init(
         configuration: AppConfiguration = .makeDefault(),
         installer: OpenClawInstaller = .shared,
-        gatewayManager: OpenClawGatewayManager = .shared
+        gatewayManager: OpenClawGatewayManager = .shared,
+        tuiManager: OpenClawTUIManager = .shared
     ) {
         self.configuration = configuration
         self.installer = installer
         self.gatewayManager = gatewayManager
+        self.tuiManager = tuiManager
     }
 
     func showWindow() {
@@ -26,7 +29,8 @@ final class SmokeTestWindowPresenter {
             windowTitle: configuration.smokeTestWindowTitle,
             model: .makeDefault(configuration: configuration),
             installer: installer,
-            gatewayManager: gatewayManager
+            gatewayManager: gatewayManager,
+            tuiManager: tuiManager
         )
 
         let hostingController = NSHostingController(rootView: contentView)

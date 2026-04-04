@@ -6,6 +6,7 @@ public struct AppConfiguration: Equatable, Sendable {
     public let helloSubtitle: String
     public let installLabel: String
     public let uninstallLabel: String
+    public let tuiDebugLabel: String
     public let applicationLabel: String
     public let applicationWindowTitle: String
     public let providerLabel: String
@@ -27,6 +28,7 @@ public struct AppConfiguration: Equatable, Sendable {
         helloSubtitle: String,
         installLabel: String,
         uninstallLabel: String,
+        tuiDebugLabel: String,
         applicationLabel: String,
         applicationWindowTitle: String,
         providerLabel: String,
@@ -47,6 +49,7 @@ public struct AppConfiguration: Equatable, Sendable {
         self.helloSubtitle = helloSubtitle
         self.installLabel = installLabel
         self.uninstallLabel = uninstallLabel
+        self.tuiDebugLabel = tuiDebugLabel
         self.applicationLabel = applicationLabel
         self.applicationWindowTitle = applicationWindowTitle
         self.providerLabel = providerLabel
@@ -70,6 +73,7 @@ public struct AppConfiguration: Equatable, Sendable {
             helloSubtitle: "This is the smallest possible Clawbar scaffold.",
             installLabel: "安装 OpenClaw",
             uninstallLabel: "卸载 OpenClaw",
+            tuiDebugLabel: "启动 TUI 调试终端",
             applicationLabel: "Settings",
             applicationWindowTitle: "Settings",
             providerLabel: "管理 Provider",

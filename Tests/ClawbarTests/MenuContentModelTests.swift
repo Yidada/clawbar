@@ -11,6 +11,7 @@ final class MenuContentModelTests: XCTestCase {
             helloSubtitle: "Subtitle",
             installLabel: "Install OpenClaw",
             uninstallLabel: "Uninstall OpenClaw",
+            tuiDebugLabel: "Launch TUI",
             applicationLabel: "Manage App",
             applicationWindowTitle: "App Window",
             providerLabel: "Providers",
@@ -31,6 +32,7 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.subtitle, "Subtitle")
         XCTAssertEqual(model.installButtonTitle, "Install OpenClaw")
         XCTAssertEqual(model.uninstallButtonTitle, "Uninstall OpenClaw")
+        XCTAssertEqual(model.tuiDebugButtonTitle, "Launch TUI")
         XCTAssertEqual(model.managementButtonTitle, "Manage App")
         XCTAssertEqual(model.quitButtonTitle, "Exit")
         XCTAssertEqual(model.width, 320)
@@ -43,6 +45,7 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.accessibilityIdentifier(for: .subtitle), "clawbar.menu.subtitle")
         XCTAssertEqual(model.accessibilityIdentifier(for: .installButton), "clawbar.menu.installButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .uninstallButton), "clawbar.menu.uninstallButton")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .tuiDebugButton), "clawbar.menu.tuiDebugButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .managementButton), "clawbar.menu.managementButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .openClawSection), "clawbar.menu.openClawSection")
         XCTAssertEqual(model.accessibilityIdentifier(for: .openClawTitle), "clawbar.menu.openClawTitle")

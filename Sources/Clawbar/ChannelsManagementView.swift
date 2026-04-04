@@ -38,7 +38,7 @@ enum ChannelKind: String, CaseIterable, Identifiable {
         case .feishu:
             "Webhook、应用凭证和群聊路由。"
         case .wechat:
-            "按需安装官方 WeixinClawBot，并在需要时单独绑定。"
+            "打开后按官方流程安装并扫码连接。"
         }
     }
 }
@@ -62,6 +62,29 @@ struct ChannelsManagementView: View {
 
     private var enabledCount: Int {
         [feishuEnabled, wechatEnabled].filter { $0 }.count
+    }
+
+    private var wechatToggleBinding: Binding<Bool> {
+        Binding(
+            get: { wechatEnabled },
+            set: { newValue in
+                let previousValue = wechatEnabled
+                wechatEnabled = newValue
+
+                guard previousValue != newValue else { return }
+
+                guard newValue else {
+                    wechatManager.cancelActiveWeChatFlow()
+                    return
+                }
+
+                if wechatManager.pluginInstalled {
+                    wechatManager.refreshWeChatStatus()
+                } else {
+                    wechatManager.installWeChatCapability()
+                }
+            }
+        )
     }
 
     var body: some View {
@@ -94,7 +117,7 @@ struct ChannelsManagementView: View {
                 Text("Channels 管理")
                     .font(.system(size: 30, weight: .semibold))
 
-                Text("集中维护飞书和微信通道；微信能力与 OpenClaw 主安装解耦，按需安装后再绑定。")
+                Text("集中维护飞书和微信通道；微信会按官方安装器流程完成安装、扫码和接入。")
                     .font(.subheadline)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -187,113 +210,232 @@ struct ChannelsManagementView: View {
     }
 
     private var wechatCard: some View {
-        channelShell(kind: .wechat, enabled: $wechatEnabled) {
-            HStack(spacing: 8) {
-                Text("官方 WeixinClawBot")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(ChannelKind.wechat.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(ChannelKind.wechat.accentColor.opacity(0.14), in: Capsule())
+        channelShell(kind: .wechat, enabled: wechatToggleBinding) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text("官方 WeixinClawBot")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ChannelKind.wechat.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(ChannelKind.wechat.accentColor.opacity(0.14), in: Capsule())
 
-                Text(wechatManager.statusLabel)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(theme.secondaryText)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("微信能力状态")
-                    .font(.headline)
-
-                Text(wechatManager.lastActionSummary)
-                    .font(.subheadline.weight(.semibold))
-
-                Text(wechatManager.lastActionDetail)
-                    .font(.caption)
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(14)
-            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Button("安装微信能力") {
-                        wechatManager.installWeChatCapability()
+                    if let statusTone = wechatStatusTone {
+                        Text(wechatManager.statusLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(statusTone)
+                    } else {
+                        Text(wechatManager.statusLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.secondaryText)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(ChannelKind.wechat.accentColor)
-                    .disabled(wechatManager.isInstalling || wechatManager.openClawBinaryPath == nil)
-
-                    Button("开始绑定") {
-                        wechatManager.startWeChatBinding()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(
-                        wechatManager.isInstalling ||
-                        wechatManager.isLaunchingBinding ||
-                        wechatManager.pluginInstalled == false
-                    )
-
-                    Button("刷新状态") {
-                        wechatManager.refreshWeChatStatus()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(wechatManager.isRefreshing || wechatManager.isInstalling || wechatManager.isLaunchingBinding)
                 }
 
-                if wechatManager.isInstalling || wechatManager.isLaunchingBinding || wechatManager.isRefreshing {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("当前状态")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.secondaryText)
+
+                    Text(wechatStatusHeadline)
+                        .font(.title3.weight(.semibold))
+
+                    Text(wechatStatusDetail)
+                        .font(.subheadline)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                if let qrCodeURL = wechatManager.runtimeSnapshot.qrCodeURL,
+                   let qrURL = URL(string: qrCodeURL),
+                   !wechatManager.runtimeSnapshot.connected {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("微信扫码")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.secondaryText)
+
+                        HStack(alignment: .center, spacing: 16) {
+                            QRCodeImageView(payload: qrCodeURL)
+                                .frame(width: 168, height: 168)
+                                .padding(10)
+                                .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(theme.inputBorder, lineWidth: 1)
+                                )
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("请直接用微信扫一扫。")
+                                    .font(.subheadline.weight(.medium))
+
+                                Text(wechatManager.runtimeSnapshot.qrExpired ? "二维码过期后会自动刷新。" : "如果二维码失效，后台流程会自动刷新。")
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondaryText)
+
+                                Link("在浏览器打开二维码", destination: qrURL)
+                                    .font(.caption.weight(.semibold))
+                            }
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    if wechatManager.isBusy {
+                        Button("取消流程") {
+                            wechatManager.cancelActiveWeChatFlow()
+                        }
+                        .buttonStyle(.bordered)
+                    } else if shouldShowBindButton {
+                        Button("扫码连接") {
+                            wechatManager.startWeChatBinding()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(ChannelKind.wechat.accentColor)
+                        .disabled(wechatManager.isBusy)
+                        
+                        Button("刷新状态") {
+                            wechatManager.refreshWeChatStatus()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(wechatManager.isBusy)
+                    } else {
+                        Button("刷新状态") {
+                            wechatManager.refreshWeChatStatus()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(ChannelKind.wechat.accentColor)
+                        .disabled(wechatManager.isBusy)
+                    }
+                }
+
+                if wechatManager.isBusy {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                guideRow("微信能力独立于 OpenClaw 主安装，失败后可在这里单独重试。")
-                guideRow("开始绑定后会自动拉起 Terminal，执行 `openclaw channels login --channel openclaw-weixin`。")
-                guideRow("用户实际只需要在微信里扫码；当前官方渠道只支持私聊。")
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("最近动作输出")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.secondaryText)
-
-                ScrollView {
-                    Text(wechatManager.lastCommandOutput.nonEmptyOr("等待执行微信能力安装或绑定命令..."))
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(12)
-                }
-                .frame(minHeight: 160)
-                .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(theme.inputBorder, lineWidth: 1)
-                )
-            }
-
-            Text(wechatRuntimeSummary)
-                .font(.caption)
-                .foregroundStyle(theme.secondaryText)
         }
     }
 
-    private var wechatRuntimeSummary: String {
+    private var wechatStatusHeadline: String {
+        if wechatManager.isInstalling {
+            if wechatManager.runtimeSnapshot.restartingGateway {
+                return "正在重启 Gateway"
+            }
+            if wechatManager.runtimeSnapshot.connected {
+                return "微信连接成功"
+            }
+            if wechatManager.runtimeSnapshot.scanned {
+                return "已扫码，等待确认"
+            }
+            if wechatManager.runtimeSnapshot.qrCodeURL != nil {
+                return "请用微信扫码"
+            }
+            if wechatManager.runtimeSnapshot.pluginReadyForLogin {
+                return "正在准备扫码"
+            }
+            if wechatManager.runtimeSnapshot.pluginInstalled {
+                return "插件已安装"
+            }
+            return "正在安装微信插件"
+        }
+        if wechatManager.pendingInstallCompletion {
+            return "等待安装和扫码完成"
+        }
+        if wechatManager.isLaunchingBinding {
+            if wechatManager.runtimeSnapshot.connected {
+                return "微信连接成功"
+            }
+            if wechatManager.runtimeSnapshot.scanned {
+                return "已扫码，等待确认"
+            }
+            if wechatManager.runtimeSnapshot.qrCodeURL != nil {
+                return "请用微信扫码"
+            }
+            return "正在准备扫码"
+        }
+        if wechatManager.pendingBindingCompletion {
+            return "等待扫码连接"
+        }
+        if wechatManager.isRefreshing {
+            return "正在检查状态"
+        }
+        return wechatManager.statusLabel
+    }
+
+    private var wechatStatusDetail: String {
+        if wechatManager.isInstalling {
+            if wechatManager.runtimeSnapshot.restartingGateway {
+                return "官方安装器已经完成扫码，正在重启 OpenClaw Gateway。"
+            }
+            if wechatManager.runtimeSnapshot.connected {
+                return "已经识别到微信连接成功，正在完成最后收尾。"
+            }
+            if wechatManager.runtimeSnapshot.scanned {
+                return "请在手机微信里确认授权。"
+            }
+            if wechatManager.runtimeSnapshot.qrCodeURL != nil {
+                return "二维码已提取到当前页面，无需再看 Terminal。"
+            }
+            if wechatManager.runtimeSnapshot.pluginReadyForLogin {
+                return "插件安装完成，正在拉起微信扫码登录。"
+            }
+            if wechatManager.runtimeSnapshot.pluginInstalled {
+                return "已识别到插件安装完成。"
+            }
+            return "Clawbar 正在后台执行官方安装器。"
+        }
+        if wechatManager.pendingInstallCompletion {
+            return "后台流程仍在继续；如状态没有变化，可刷新确认。"
+        }
+        if wechatManager.isLaunchingBinding {
+            if wechatManager.runtimeSnapshot.connected {
+                return "已经识别到微信连接成功。"
+            }
+            if wechatManager.runtimeSnapshot.scanned {
+                return "请在手机微信里确认授权。"
+            }
+            if wechatManager.runtimeSnapshot.qrCodeURL != nil {
+                return "二维码已提取到当前页面，无需再看 Terminal。"
+            }
+            return "Clawbar 正在后台发起扫码登录。"
+        }
+        if wechatManager.pendingBindingCompletion {
+            return "后台流程仍在继续；如状态没有变化，可刷新确认。"
+        }
+        if wechatManager.isRefreshing {
+            return "正在读取当前 OpenClaw 和微信插件状态。"
+        }
         if wechatManager.openClawBinaryPath == nil {
-            return "当前设备还没有可用的 OpenClaw CLI，因此暂时无法内置微信能力。"
+            return "当前没有检测到 OpenClaw，暂时无法安装微信能力。"
         }
         if wechatManager.pluginInstalled == false {
-            return "微信 Channel 已启用，但官方 WeixinClawBot 还没有安装到当前 OpenClaw 环境。"
+            return wechatEnabled ? "开关已打开。点击刷新状态查看官方安装器是否已经完成。" : "打开开关后会启动官方安装器。"
         }
         if wechatManager.bindingDetected == false {
-            return "微信能力已安装，下一步直接点“开始绑定”，然后用微信扫码。"
+            return "插件已安装，但还没检测到微信连接。需要时可以手动重新扫码。"
         }
-        if wechatEnabled == false {
-            return "微信能力已就绪，但当前 Clawbar 本地开关未启用。需要时仍可直接重新绑定。"
+        return "微信能力已经可用。"
+    }
+
+    private var wechatStatusTone: Color? {
+        if wechatManager.openClawBinaryPath == nil {
+            return .orange
         }
-        return "微信 Channel 已准备好，后续通常只在重新配对时再需要扫码。"
+        if wechatManager.pluginInstalled && wechatManager.bindingDetected {
+            return ChannelKind.wechat.accentColor
+        }
+        return nil
+    }
+
+    private var shouldShowBindButton: Bool {
+        wechatEnabled &&
+        wechatManager.openClawBinaryPath != nil &&
+        wechatManager.pluginInstalled &&
+        !wechatManager.bindingDetected &&
+        !wechatManager.pendingBindingCompletion
     }
 
     private func overviewMetric(title: String, value: String) -> some View {
@@ -355,22 +497,4 @@ struct ChannelsManagementView: View {
         .shadow(color: theme.shadowColor, radius: colorScheme == .dark ? 0 : 18, y: colorScheme == .dark ? 0 : 8)
     }
 
-    private func guideRow(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Circle()
-                .fill(ChannelKind.wechat.accentColor)
-                .frame(width: 6, height: 6)
-                .padding(.top, 6)
-
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(theme.secondaryText)
-        }
-    }
-}
-
-private extension String {
-    func nonEmptyOr(_ fallback: String) -> String {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : self
-    }
 }

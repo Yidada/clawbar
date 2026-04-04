@@ -10,12 +10,13 @@ Run the repository's dev loop wrapper from this skill when the user wants a fast
 ## Workflow
 
 1. Work from the repository root of the current `clawbar` checkout.
-2. Start the loop with `./.agents/skills/clawbar-dev-loop/scripts/run-dev-loop.sh`.
+2. Start the loop with `./.agents/skills/clawbar-dev-loop/scripts/run-dev-loop.swift`.
 3. Keep the session open while editing. The loop watches `Package.swift`, `Sources/`, and `Tests/`.
 4. Stop the loop with `Ctrl+C` when the user is done.
 
 ## Behavior
 
+- Uses a Swift script and `Process` orchestration for build, launch, stop, and polling work.
 - Rebuild the app after every detected file change.
 - Restart `Clawbar` only when the build succeeds.
 - Leave the previously running app untouched when the build fails.

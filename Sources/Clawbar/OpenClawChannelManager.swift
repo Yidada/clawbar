@@ -6,6 +6,32 @@ struct OpenClawChannelCommandResult: Equatable, Sendable {
     let timedOut: Bool
 }
 
+enum WeChatFlowKind: String, Sendable {
+    case install
+    case bind
+
+    var command: String {
+        switch self {
+        case .install:
+            "npx -y @tencent-weixin/openclaw-weixin-cli@latest install"
+        case .bind:
+            "openclaw channels login --channel openclaw-weixin"
+        }
+    }
+}
+
+struct WeChatRuntimeSnapshot: Equatable, Sendable {
+    var qrCodeURL: String?
+    var pluginInstallStarted = false
+    var pluginInstalled = false
+    var pluginReadyForLogin = false
+    var waitingForConnection = false
+    var scanned = false
+    var connected = false
+    var restartingGateway = false
+    var qrExpired = false
+}
+
 @MainActor
 final class OpenClawChannelManager: ObservableObject {
     static let shared = OpenClawChannelManager()
@@ -30,13 +56,19 @@ final class OpenClawChannelManager: ObservableObject {
     @Published private(set) var npxBinaryPath: String?
     @Published private(set) var pluginInstalled = false
     @Published private(set) var bindingDetected = false
+    @Published private(set) var pendingInstallCompletion = false
+    @Published private(set) var pendingBindingCompletion = false
     @Published private(set) var lastActionSummary = "等待绑定"
     @Published private(set) var lastActionDetail = "Clawbar 会内置微信能力安装和绑定流程，用户只需要点击绑定并扫码。"
     @Published private(set) var lastCommandOutput = ""
     @Published private(set) var lastRefreshDate: Date?
+    @Published private(set) var runtimeSnapshot = WeChatRuntimeSnapshot()
 
     private let environmentProvider: EnvironmentProvider
     private let runCommand: CommandRunner
+    private var activeFlowProcess: Process?
+    private var activeFlowKind: WeChatFlowKind?
+    private var didRequestFlowCancellation = false
 
     init(
         environmentProvider: @escaping EnvironmentProvider = { ProcessInfo.processInfo.environment },
@@ -53,35 +85,40 @@ final class OpenClawChannelManager: ObservableObject {
         return "已连接微信"
     }
 
+    var isBusy: Bool {
+        isRefreshing || isInstalling || isLaunchingBinding
+    }
+
     func refreshWeChatStatus() {
         guard !isRefreshing else { return }
 
         let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
+        let commandRunner = runCommand
         isRefreshing = true
 
         Task.detached(priority: .utility) {
             let openClawBinaryPath = Self.detectBinaryPath(
                 named: "openclaw",
                 environment: environment,
-                runCommand: self.runCommand
+                runCommand: commandRunner
             )
             let npxBinaryPath = Self.detectBinaryPath(
                 named: "npx",
                 environment: environment,
-                runCommand: self.runCommand
+                runCommand: commandRunner
             )
             let pluginInstalled = openClawBinaryPath.map {
                 Self.queryPluginInstalled(
                     openClawBinaryPath: $0,
                     environment: environment,
-                    runCommand: self.runCommand
+                    runCommand: commandRunner
                 )
             } ?? false
             let bindingDetected = openClawBinaryPath.map {
                 Self.queryBindingDetected(
                     openClawBinaryPath: $0,
                     environment: environment,
-                    runCommand: self.runCommand
+                    runCommand: commandRunner
                 )
             } ?? false
 
@@ -92,6 +129,11 @@ final class OpenClawChannelManager: ObservableObject {
                 self.npxBinaryPath = npxBinaryPath.map(OpenClawInstaller.displayBinaryPath(_:))
                 self.pluginInstalled = pluginInstalled
                 self.bindingDetected = bindingDetected
+                self.pendingInstallCompletion = self.pendingInstallCompletion && !pluginInstalled
+                self.pendingBindingCompletion = self.pendingBindingCompletion && !bindingDetected
+                if bindingDetected || (!self.isInstalling && !self.isLaunchingBinding) {
+                    self.runtimeSnapshot = WeChatRuntimeSnapshot()
+                }
 
                 if openClawBinaryPath == nil {
                     self.lastActionSummary = "未检测到 OpenClaw"
@@ -114,50 +156,35 @@ final class OpenClawChannelManager: ObservableObject {
         guard !isInstalling else { return }
 
         let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
-        guard Self.detectBinaryPath(named: "openclaw", environment: environment, runCommand: runCommand) != nil else {
+        let commandRunner = runCommand
+        guard Self.detectBinaryPath(named: "openclaw", environment: environment, runCommand: commandRunner) != nil else {
             lastActionSummary = "未检测到 OpenClaw"
             lastActionDetail = "请先安装 OpenClaw，再安装微信能力。"
             return
         }
-        guard let npxPath = Self.detectBinaryPath(named: "npx", environment: environment, runCommand: runCommand) else {
+        guard Self.detectBinaryPath(named: "npx", environment: environment, runCommand: commandRunner) != nil else {
             lastActionSummary = "未检测到 npx"
             lastActionDetail = "当前环境里没有可用的 npx，无法执行官方微信安装器。"
             return
         }
 
         isInstalling = true
-        lastActionSummary = "正在安装微信能力..."
-        lastActionDetail = "Clawbar 正在执行官方 WeixinClawBot 安装命令。"
-        lastCommandOutput = "$ npx \(Self.installArguments.joined(separator: " "))\n\n"
+        pendingInstallCompletion = false
+        pendingBindingCompletion = false
+        runtimeSnapshot = WeChatRuntimeSnapshot()
+        lastActionSummary = "正在后台安装微信能力..."
+        lastActionDetail = "Clawbar 会在后台执行官方安装器，并把二维码显示在这里。"
+        lastCommandOutput = "$ \(WeChatFlowKind.install.command)\n\n"
 
-        Task.detached(priority: .userInitiated) {
-            let result = self.runCommand(npxPath, Self.installArguments, environment, 300)
-
-            await MainActor.run {
-                self.isInstalling = false
-                self.lastCommandOutput = "$ npx \(Self.installArguments.joined(separator: " "))\n\n" + result.output.nonEmptyOr("(no output)")
-
-                if result.timedOut {
-                    self.lastActionSummary = "微信能力安装超时"
-                    self.lastActionDetail = "官方安装命令在 300 秒内没有完成。"
-                } else if result.exitStatus != 0 {
-                    self.lastActionSummary = "微信能力安装失败"
-                    self.lastActionDetail = "官方安装命令退出码为 \(result.exitStatus)。"
-                } else {
-                    self.lastActionSummary = "微信能力安装完成"
-                    self.lastActionDetail = "官方安装器已执行完成，正在刷新当前微信 Channel 状态。"
-                }
-
-                self.refreshWeChatStatus()
-            }
-        }
+        startBackgroundFlow(kind: .install, environment: environment)
     }
 
     func startWeChatBinding() {
         guard !isLaunchingBinding else { return }
 
         let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
-        guard Self.detectBinaryPath(named: "openclaw", environment: environment, runCommand: runCommand) != nil else {
+        let commandRunner = runCommand
+        guard Self.detectBinaryPath(named: "openclaw", environment: environment, runCommand: commandRunner) != nil else {
             lastActionSummary = "未检测到 OpenClaw"
             lastActionDetail = "请先安装 OpenClaw，再开始微信绑定。"
             return
@@ -168,36 +195,140 @@ final class OpenClawChannelManager: ObservableObject {
             return
         }
 
-        let terminalCommand = Self.makeTerminalShellCommand(
-            command: "openclaw " + Self.bindArguments.joined(separator: " "),
-            path: environment["PATH"] ?? ""
-        )
-        let appleScriptArguments = Self.makeTerminalLaunchArguments(shellCommand: terminalCommand)
-
         isLaunchingBinding = true
-        lastActionSummary = "正在打开绑定终端..."
-        lastActionDetail = "Clawbar 会拉起 Terminal，并自动运行微信扫码登录命令。"
-        lastCommandOutput = "$ openclaw \(Self.bindArguments.joined(separator: " "))\n\n"
+        pendingInstallCompletion = false
+        pendingBindingCompletion = false
+        runtimeSnapshot = WeChatRuntimeSnapshot()
+        lastActionSummary = "正在后台发起扫码连接..."
+        lastActionDetail = "Clawbar 会在后台执行登录命令，并把二维码显示在这里。"
+        lastCommandOutput = "$ \(WeChatFlowKind.bind.command)\n\n"
 
-        Task.detached(priority: .userInitiated) {
-            let result = self.runCommand("/usr/bin/osascript", appleScriptArguments, environment, 8)
+        startBackgroundFlow(kind: .bind, environment: environment)
+    }
 
-            await MainActor.run {
-                self.isLaunchingBinding = false
-                self.lastCommandOutput = "$ openclaw \(Self.bindArguments.joined(separator: " "))\n\n" + result.output.nonEmptyOr("(Terminal launch requested)")
+    func cancelActiveWeChatFlow() {
+        didRequestFlowCancellation = true
+        activeFlowProcess?.terminate()
+        activeFlowProcess = nil
+        activeFlowKind = nil
+        isInstalling = false
+        isLaunchingBinding = false
+        pendingInstallCompletion = false
+        pendingBindingCompletion = false
+        runtimeSnapshot = WeChatRuntimeSnapshot()
+        lastActionSummary = "已取消微信流程"
+        lastActionDetail = "后台安装或扫码流程已停止。"
+    }
 
-                if result.timedOut {
-                    self.lastActionSummary = "绑定终端启动超时"
-                    self.lastActionDetail = "Terminal 没有在预期时间内响应 AppleScript。"
-                } else if result.exitStatus != 0 {
-                    self.lastActionSummary = "无法启动绑定终端"
-                    self.lastActionDetail = "请检查 Terminal 自动化权限，或手动重试。"
-                } else {
-                    self.lastActionSummary = "已打开绑定终端"
-                    self.lastActionDetail = "请在弹出的 Terminal 中完成扫码；扫码成功后回到 Clawbar 点“刷新状态”。"
+    private func startBackgroundFlow(kind: WeChatFlowKind, environment: [String: String]) {
+        didRequestFlowCancellation = false
+        activeFlowKind = kind
+
+        do {
+            let process = try Self.makeStreamingProcess(
+                command: kind.command,
+                environment: environment,
+                outputHandler: { [weak self] chunk in
+                    Task { @MainActor [weak self] in
+                        self?.handleBackgroundFlowOutput(chunk, kind: kind)
+                    }
+                },
+                terminationHandler: { [weak self] status in
+                    Task { @MainActor [weak self] in
+                        self?.finishBackgroundFlow(kind: kind, status: status)
+                    }
                 }
-            }
+            )
+
+            activeFlowProcess = process
+            try process.run()
+        } catch {
+            isInstalling = false
+            isLaunchingBinding = false
+            activeFlowProcess = nil
+            activeFlowKind = nil
+            lastActionSummary = "无法启动微信流程"
+            lastActionDetail = error.localizedDescription
         }
+    }
+
+    private func handleBackgroundFlowOutput(_ chunk: String, kind: WeChatFlowKind) {
+        guard activeFlowKind == kind else { return }
+
+        lastCommandOutput.append(chunk)
+        if lastCommandOutput.count > 60_000 {
+            lastCommandOutput.removeFirst(lastCommandOutput.count - 60_000)
+        }
+
+        runtimeSnapshot = Self.parseRuntimeSnapshot(from: lastCommandOutput)
+
+        if runtimeSnapshot.connected {
+            pendingInstallCompletion = false
+            pendingBindingCompletion = false
+            lastActionSummary = "微信连接成功"
+            lastActionDetail = kind == .install
+                ? "插件已安装并完成扫码，正在重启 OpenClaw Gateway。"
+                : "扫码已确认，正在等待连接完成。"
+        } else if runtimeSnapshot.restartingGateway {
+            pendingInstallCompletion = kind == .install
+            pendingBindingCompletion = false
+            lastActionSummary = "正在重启 OpenClaw Gateway"
+            lastActionDetail = "微信账号已经确认，Clawbar 正在等待 Gateway 重启完成。"
+        } else if runtimeSnapshot.scanned {
+            pendingInstallCompletion = kind == .install
+            pendingBindingCompletion = kind == .bind
+            lastActionSummary = "已扫码，等待微信确认"
+            lastActionDetail = "请在手机微信里确认登录。"
+        } else if runtimeSnapshot.qrCodeURL != nil {
+            pendingInstallCompletion = kind == .install
+            pendingBindingCompletion = kind == .bind
+            lastActionSummary = kind == .install ? "请扫码安装并连接" : "请扫码连接微信"
+            lastActionDetail = "二维码已准备好。请直接用微信扫一扫。"
+        } else if runtimeSnapshot.pluginReadyForLogin {
+            lastActionSummary = "插件已就绪"
+            lastActionDetail = "正在准备微信扫码登录。"
+        } else if runtimeSnapshot.pluginInstalled {
+            lastActionSummary = "微信插件已安装"
+            lastActionDetail = "安装已完成，正在进入扫码连接。"
+        } else if runtimeSnapshot.pluginInstallStarted {
+            lastActionSummary = "正在安装微信插件"
+            lastActionDetail = "Clawbar 正在后台执行官方安装器。"
+        }
+    }
+
+    private func finishBackgroundFlow(kind: WeChatFlowKind, status: Int32) {
+        let didCancel = didRequestFlowCancellation
+        didRequestFlowCancellation = false
+        activeFlowProcess = nil
+        activeFlowKind = nil
+        isInstalling = false
+        isLaunchingBinding = false
+
+        if didCancel {
+            return
+        }
+
+        if status == 0 {
+            pendingInstallCompletion = false
+            pendingBindingCompletion = false
+
+            if runtimeSnapshot.connected {
+                lastActionSummary = "微信连接成功"
+                lastActionDetail = "后台流程已完成，正在刷新当前状态。"
+            } else {
+                lastActionSummary = kind == .install ? "微信能力安装完成" : "微信扫码流程结束"
+                lastActionDetail = "后台流程已结束，正在刷新当前状态。"
+            }
+
+            refreshWeChatStatus()
+            return
+        }
+
+        pendingInstallCompletion = false
+        pendingBindingCompletion = false
+        lastActionSummary = kind == .install ? "微信安装流程失败" : "微信扫码流程失败"
+        lastActionDetail = Self.extractFailureDetail(from: lastCommandOutput)
+            ?? "后台命令异常退出，详情见最近输出。"
     }
 
     nonisolated static func detectBinaryPath(
@@ -265,6 +396,78 @@ final class OpenClawChannelManager: ObservableObject {
         let positiveSignal = normalized.contains("ready") || normalized.contains("connected") || normalized.contains("online")
         let negativeSignal = normalized.contains("not configured") || normalized.contains("disconnected") || normalized.contains("error")
         return mentionsWeChat && positiveSignal && !negativeSignal
+    }
+
+    nonisolated static func parseRuntimeSnapshot(from output: String) -> WeChatRuntimeSnapshot {
+        let latestQRCodeURL = latestMatch(
+            pattern: #"https://liteapp\.weixin\.qq\.com/q/\S+"#,
+            in: output
+        )
+
+        return WeChatRuntimeSnapshot(
+            qrCodeURL: latestQRCodeURL,
+            pluginInstallStarted: output.contains("正在安装插件"),
+            pluginInstalled: output.contains("Installed plugin: openclaw-weixin"),
+            pluginReadyForLogin: output.contains("插件就绪，开始首次连接"),
+            waitingForConnection: output.contains("等待连接结果"),
+            scanned: output.contains("已扫码，在微信继续操作"),
+            connected: output.contains("✅ 与微信连接成功"),
+            restartingGateway: output.contains("正在重启 OpenClaw Gateway"),
+            qrExpired: output.contains("二维码已过期")
+        )
+    }
+
+    private nonisolated static func latestMatch(pattern: String, in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = regex.matches(in: text, range: range)
+        guard let result = matches.last, let matchRange = Range(result.range, in: text) else { return nil }
+        return String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated static func extractFailureDetail(from output: String) -> String? {
+        let candidates = output
+            .split(separator: "\n")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .reversed()
+
+        for line in candidates {
+            if line.contains("失败") || line.contains("Error") || line.contains("error") || line.contains("未完成") {
+                return line
+            }
+        }
+
+        return candidates.first
+    }
+
+    private nonisolated static func makeStreamingProcess(
+        command: String,
+        environment: [String: String],
+        outputHandler: @escaping @Sendable (String) -> Void,
+        terminationHandler: @escaping @Sendable (Int32) -> Void
+    ) throws -> Process {
+        let process = Process()
+        let outputPipe = Pipe()
+
+        outputPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            outputHandler(sanitizeChannelOutput(data))
+        }
+
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-lc", command]
+        process.environment = environment
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        process.terminationHandler = { process in
+            outputPipe.fileHandleForReading.readabilityHandler = nil
+            terminationHandler(process.terminationStatus)
+        }
+
+        return process
     }
 
     nonisolated static func makeTerminalShellCommand(command: String, path: String) -> String {
@@ -366,4 +569,16 @@ private extension String {
     func nonEmptyOr(_ fallback: String) -> String {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : self
     }
+}
+
+private func sanitizeChannelOutput(_ data: Data) -> String {
+    let raw = String(decoding: data, as: UTF8.self)
+    let pattern = #"\u{001B}\[[0-9;?]*[ -/]*[@-~]"#
+
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return raw
+    }
+
+    let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+    return regex.stringByReplacingMatches(in: raw, options: [], range: range, withTemplate: "")
 }

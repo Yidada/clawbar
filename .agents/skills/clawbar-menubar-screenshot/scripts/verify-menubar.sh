@@ -87,6 +87,7 @@ VERIFY_ARGS=(
     --item-title "$ITEM_TITLE"
     --expect "Hello World"
     --expect "This is the smallest possible Clawbar scaffold."
+    --expect "Settings"
     --expect "Quit"
 )
 

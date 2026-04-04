@@ -8,15 +8,25 @@ final class SmokeTestWindowPresenter {
 
     private var window: NSWindow?
     private let configuration: AppConfiguration
+    private let installer: OpenClawInstaller
+    private let gatewayManager: OpenClawGatewayManager
 
-    init(configuration: AppConfiguration = .makeDefault()) {
+    init(
+        configuration: AppConfiguration = .makeDefault(),
+        installer: OpenClawInstaller = .shared,
+        gatewayManager: OpenClawGatewayManager = .shared
+    ) {
         self.configuration = configuration
+        self.installer = installer
+        self.gatewayManager = gatewayManager
     }
 
     func showWindow() {
         let contentView = SmokeTestView(
             windowTitle: configuration.smokeTestWindowTitle,
-            model: .makeDefault(configuration: configuration)
+            model: .makeDefault(configuration: configuration),
+            installer: installer,
+            gatewayManager: gatewayManager
         )
 
         let hostingController = NSHostingController(rootView: contentView)

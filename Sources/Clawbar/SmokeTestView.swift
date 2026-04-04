@@ -4,6 +4,8 @@ import ClawbarKit
 struct SmokeTestView: View {
     let windowTitle: String
     let model: MenuContentModel
+    @ObservedObject var installer: OpenClawInstaller
+    @ObservedObject var gatewayManager: OpenClawGatewayManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -16,7 +18,11 @@ struct SmokeTestView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            MenuContentView(model: model)
+            MenuContentView(
+                model: model,
+                installer: installer,
+                gatewayManager: gatewayManager
+            )
         }
         .padding(20)
         .frame(width: 360)

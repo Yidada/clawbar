@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "project": "clawbar",
+  "skillRoot": ".agents/skills",
+  "skills": [
+    {
+      "name": "clawbar-dev-loop",
+      "mode": "owned",
+      "category": "development",
+      "purpose": "Auto rebuild and relaunch the local Clawbar app while editing Swift sources or tests."
+    },
+    {
+      "name": "clawbar-menubar-screenshot",
+      "mode": "owned",
+      "category": "visual-regression",
+      "purpose": "Open the live menubar popup and capture a reproducible screenshot artifact."
+    },
+    {
+      "name": "clawbar-menubar-verify",
+      "mode": "owned",
+      "category": "ui-verification",
+      "purpose": "Run an Accessibility-driven verification pass against the live menubar popup."
+    }
+  ]
+}

@@ -4,7 +4,9 @@ import ClawbarKit
 
 struct MenuContentView: View {
     let model: MenuContentModel
-    @ObservedObject private var installer = OpenClawInstaller.shared
+    @ObservedObject var installer: OpenClawInstaller
+    @ObservedObject var gatewayManager: OpenClawGatewayManager
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -30,6 +32,11 @@ struct MenuContentView: View {
                 .disabled(installer.isInstalling)
                 .accessibilityIdentifier(model.accessibilityIdentifier(for: .installButton))
             }
+
+            Button(model.managementButtonTitle) {
+                openApplicationManagement()
+            }
+            .accessibilityIdentifier(model.accessibilityIdentifier(for: .managementButton))
 
             Button(model.quitButtonTitle) {
                 NSApplication.shared.terminate(nil)
@@ -100,7 +107,14 @@ struct MenuContentView: View {
     }
 
     private func installOpenClaw() {
-        OpenClawInstallWindowPresenter.shared.showWindow(installer: installer)
+        openWindow(id: ClawbarWindow.openClawInstallID)
+        NSApp.activate(ignoringOtherApps: true)
         installer.startInstallIfNeeded()
+    }
+
+    private func openApplicationManagement() {
+        gatewayManager.refreshStatus()
+        openWindow(id: ClawbarWindow.applicationManagementID)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

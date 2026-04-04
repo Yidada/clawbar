@@ -1,19 +1,55 @@
 import SwiftUI
 import ClawbarKit
 
+enum ClawbarWindow {
+    static let openClawInstallID = "openclaw-install"
+    static let openClawInstallTitle = "OpenClaw 安装"
+    static let applicationManagementID = "application-management"
+}
+
 @main
 struct ClawbarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let configuration = AppConfiguration.makeDefault()
+    private let installer = OpenClawInstaller.shared
+    private let gatewayManager = OpenClawGatewayManager.shared
 
+    @SceneBuilder
     var body: some Scene {
+        menuBarScene
+        installScene
+        applicationManagementScene
+    }
+
+    private var menuBarScene: some Scene {
         MenuBarExtra {
-            MenuContentView(model: .makeDefault(configuration: configuration))
+            MenuContentView(
+                model: .makeDefault(configuration: configuration),
+                installer: installer,
+                gatewayManager: gatewayManager
+            )
         } label: {
             Label(configuration.menuBarTitle, systemImage: configuration.systemImageName)
                 .labelStyle(.iconOnly)
                 .accessibilityLabel(Text(configuration.menuBarTitle))
         }
         .menuBarExtraStyle(.menu)
+    }
+
+    private var installScene: some Scene {
+        Window(ClawbarWindow.openClawInstallTitle, id: ClawbarWindow.openClawInstallID) {
+            OpenClawInstallView(installer: installer)
+        }
+        .defaultSize(width: 760, height: 520)
+    }
+
+    private var applicationManagementScene: some Scene {
+        Window(configuration.applicationWindowTitle, id: ClawbarWindow.applicationManagementID) {
+            ApplicationManagementView(
+                configuration: configuration,
+                gatewayManager: gatewayManager
+            )
+        }
+        .defaultSize(width: 820, height: 660)
     }
 }

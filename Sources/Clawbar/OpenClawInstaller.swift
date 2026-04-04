@@ -62,6 +62,7 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let defaultRefreshInterval: TimeInterval = 30
     nonisolated static let installScriptURL = URL(string: "https://openclaw.ai/install.sh")!
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
+    nonisolated static let wechatCapabilityInstallCommand = "npx -y @tencent-weixin/openclaw-weixin-cli@latest install"
     nonisolated static let detectCommand = "command -v openclaw"
     nonisolated static let statusCommand = "openclaw status"
 
@@ -265,6 +266,16 @@ final class OpenClawInstaller: ObservableObject {
         return String(normalized[..<index]) + "…"
     }
 
+    nonisolated static func didWeChatCapabilityInstallSucceed(
+        exitStatus: Int32,
+        output: String
+    ) -> Bool {
+        guard exitStatus == 0 else { return false }
+
+        let normalizedOutput = output.lowercased()
+        return !normalizedOutput.contains("error") && !normalizedOutput.contains("failed")
+    }
+
     nonisolated static func shouldRefreshStatus(
         force: Bool,
         isRefreshing: Bool,
@@ -371,10 +382,14 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     private nonisolated static func detectInstalledBinaryPath(environment: [String: String]) -> String? {
+        detectCommandPath(detectCommand, environment: environment)
+    }
+
+    private nonisolated static func detectCommandPath(_ command: String, environment: [String: String]) -> String? {
         let outputPipe = Pipe()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-lc", detectCommand]
+        process.arguments = ["-lc", command]
         process.environment = environment
         process.standardOutput = outputPipe
         process.standardError = Pipe()
@@ -407,7 +422,7 @@ final class OpenClawInstaller: ObservableObject {
         _ command: String,
         environment: [String: String],
         timeout: TimeInterval
-    ) -> (output: String, timedOut: Bool) {
+    ) -> (output: String, exitStatus: Int32, timedOut: Bool) {
         let outputPipe = Pipe()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -419,7 +434,7 @@ final class OpenClawInstaller: ObservableObject {
         do {
             try process.run()
         } catch {
-            return ("", false)
+            return ("", 1, false)
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -436,7 +451,7 @@ final class OpenClawInstaller: ObservableObject {
         }
 
         let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        return (sanitizeOutput(data), timedOut)
+        return (sanitizeOutput(data), process.terminationStatus, timedOut)
     }
 
     private func appendLog(_ chunk: String) {
@@ -445,20 +460,80 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     private func finishInstall(with result: Result<Void, Error>, logURL: URL) {
-        isInstalling = false
         activeProcess = nil
         outputHandle = nil
         lastLogURL = logURL
 
         switch result {
         case .success:
-            statusText = "OpenClaw 安装完成。"
-            detailText = "安装脚本执行结束。你现在可以继续手动运行 OpenClaw，onboarding 仍未执行。"
-            refreshInstallationStatus(force: true)
+            let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
+            let openClawPath = Self.detectInstalledBinaryPath(environment: environment)
+            let npxPath = Self.detectCommandPath("command -v npx", environment: environment)
+
+            guard openClawPath != nil else {
+                isInstalling = false
+                statusText = "OpenClaw 安装完成。"
+                detailText = "安装脚本执行结束，但尚未检测到全局 openclaw 命令。"
+                logText += "\n[Clawbar] OpenClaw 安装完成，但未检测到全局 openclaw 命令。\n"
+                refreshInstallationStatus(force: true)
+                return
+            }
+
+            guard npxPath != nil else {
+                isInstalling = false
+                statusText = "OpenClaw 安装完成。"
+                detailText = "安装脚本执行结束；未检测到 npx，已跳过微信能力自动安装。"
+                logText += "\n[Clawbar] 未检测到 npx，已跳过微信能力自动安装。\n"
+                refreshInstallationStatus(force: true)
+                return
+            }
+
+            statusText = "OpenClaw 安装完成，正在安装微信能力..."
+            detailText = "主安装已结束，Clawbar 正在补装官方 WeixinClawBot 插件。"
+            logText += "\n[Clawbar] OpenClaw 安装完成，开始自动安装微信能力。\n"
+            runPostInstallWeChatCapability(environment: environment)
         case let .failure(error):
+            isInstalling = false
             statusText = "OpenClaw 安装失败。"
             detailText = error.localizedDescription
             logText += "\n[Clawbar] \(error.localizedDescription)\n"
+        }
+    }
+
+    private func runPostInstallWeChatCapability(environment: [String: String]) {
+        let command = Self.wechatCapabilityInstallCommand
+        logText += "$ \(command)\n\n"
+
+        Task.detached(priority: .utility) {
+            let result = Self.runCommand(command, environment: environment, timeout: 300)
+
+            await MainActor.run {
+                self.isInstalling = false
+                self.logText += result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "(no output)"
+                    : result.output
+
+                if result.timedOut {
+                    self.statusText = "OpenClaw 安装完成。"
+                    self.detailText = "微信能力自动安装超时；稍后仍可在 Channels 页单独安装。"
+                    self.logText += "\n[Clawbar] 微信能力自动安装超时。\n"
+                } else {
+                    if !Self.didWeChatCapabilityInstallSucceed(
+                        exitStatus: result.exitStatus,
+                        output: result.output
+                    ) {
+                        self.statusText = "OpenClaw 安装完成。"
+                        self.detailText = "微信能力自动安装可能失败；稍后可在 Channels 页重试。"
+                        self.logText += "\n[Clawbar] 微信能力自动安装返回了失败信号，请检查上方日志。\n"
+                    } else {
+                        self.statusText = "OpenClaw 和微信能力已安装。"
+                        self.detailText = "下一步可以直接去 Channels 页开始绑定微信。"
+                        self.logText += "\n[Clawbar] 微信能力自动安装完成。\n"
+                    }
+                }
+
+                self.refreshInstallationStatus(force: true)
+            }
         }
     }
 

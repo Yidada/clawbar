@@ -19,6 +19,10 @@
 swift run Clawbar
 ```
 
+## Docs
+
+开发过程中的记录文档统一放在 [`docs/`](docs/) 目录下。
+
 ## Dev Loop
 
 保存后自动重编译并重启 app：

@@ -10,6 +10,14 @@ final class MenuContentModelTests: XCTestCase {
             helloTitle: "Hi",
             helloSubtitle: "Subtitle",
             installLabel: "Install OpenClaw",
+            applicationLabel: "Manage App",
+            applicationWindowTitle: "App Window",
+            providerLabel: "Providers",
+            providerWindowTitle: "Provider Window",
+            gatewayLabel: "Gateway",
+            gatewayWindowTitle: "Gateway Window",
+            channelsLabel: "Channels",
+            channelsWindowTitle: "Channels Window",
             quitLabel: "Exit",
             smokeTestEnvironmentVariable: "SMOKE",
             smokeTestWindowTitle: "Smoke",
@@ -21,6 +29,7 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.title, "Hi")
         XCTAssertEqual(model.subtitle, "Subtitle")
         XCTAssertEqual(model.installButtonTitle, "Install OpenClaw")
+        XCTAssertEqual(model.managementButtonTitle, "Manage App")
         XCTAssertEqual(model.quitButtonTitle, "Exit")
         XCTAssertEqual(model.width, 320)
     }
@@ -31,6 +40,7 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.accessibilityIdentifier(for: .title), "clawbar.menu.title")
         XCTAssertEqual(model.accessibilityIdentifier(for: .subtitle), "clawbar.menu.subtitle")
         XCTAssertEqual(model.accessibilityIdentifier(for: .installButton), "clawbar.menu.installButton")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .managementButton), "clawbar.menu.managementButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .openClawSection), "clawbar.menu.openClawSection")
         XCTAssertEqual(model.accessibilityIdentifier(for: .openClawTitle), "clawbar.menu.openClawTitle")
         XCTAssertEqual(model.accessibilityIdentifier(for: .openClawBinaryPath), "clawbar.menu.openClawBinaryPath")

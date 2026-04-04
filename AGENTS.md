@@ -1,7 +1,10 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`clawbar` is a Swift Package Manager macOS menu bar app. Core logic lives in `Sources/ClawbarKit`, while the app entry point and SwiftUI/AppKit integration live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`. Developer scripts are in `Scripts/`, run artifacts are written to `Artifacts/`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`. `References/` contains upstream material for comparison, not the main codepath.
+`clawbar` is a Swift Package Manager macOS menu bar app. Core logic lives in `Sources/ClawbarKit`, while the app entry point and SwiftUI/AppKit integration live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`. Developer scripts are in `Scripts/`, run artifacts are written to `Artifacts/`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`. `References/` contains upstream material for comparison, not the main codepath. When work touches OpenClaw-specific behavior, installation flow, protocol details, or API assumptions, inspect `References/openclaw` source code first and treat it as the primary reference for OpenClaw implementation details.
+
+## OpenClaw Reference Workflow
+For any task that depends on OpenClaw internals, prefer reading the upstream implementation under `References/openclaw` over relying on memory, screenshots, or stale notes. If the task depends on current OpenClaw interfaces, endpoint shapes, CLI flags, config formats, or other integration details that may have changed, refresh `References/openclaw` from the upstream source before implementing or documenting behavior. Keep reference-sync updates separate from Clawbar behavior changes unless the task is explicitly about syncing the OpenClaw reference snapshot.
 
 ## Build, Test, and Development Commands
 Use the package root for all commands:

@@ -91,6 +91,20 @@ Artifacts/SmokeTests/clawbar-smoke.log
 ./Scripts/test.sh
 ```
 
+## 发布
+
+正式 macOS 发布改为 tag 驱动的 notarized DMG 流程：
+
+- 常规 CI 继续跑 `swift build` / `swift test`
+- 推送 `v*` tag 后，GitHub Actions 会执行签名、公证、stapling 和 DMG 发布
+- 需要预先配置 Apple 证书和 notarization 相关 secrets
+
+详细步骤见：
+
+```text
+docs/2026-04-05-notarized-release-process.md
+```
+
 ## 仓库结构
 
 - `Sources/ClawbarKit`：共享的生命周期、配置、菜单模型等可测试逻辑。

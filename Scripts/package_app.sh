@@ -16,7 +16,12 @@ APP_VERSION="${APP_VERSION:-$(date -u +"%Y.%m.%d")}"
 APP_BUILD="${APP_BUILD:-$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 1)}"
 GIT_COMMIT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 ZIP_BASENAME="${ZIP_BASENAME:-${PRODUCT_NAME}-${APP_VERSION}-${APP_BUILD}-${GIT_COMMIT}}"
+DMG_BASENAME="${DMG_BASENAME:-${PRODUCT_NAME}-${APP_VERSION}}"
 ZIP_PATH="$DIST_DIR/${ZIP_BASENAME}.zip"
+DMG_PATH="$DIST_DIR/${DMG_BASENAME}.dmg"
+OUTPUT_FORMAT="${OUTPUT_FORMAT:-zip}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
+SIGN_WITH_TIMESTAMP="${SIGN_WITH_TIMESTAMP:-0}"
 
 if [[ -n "${BUILD_ARCHS:-}" ]]; then
   BUILD_ARCHS_VALUE="$BUILD_ARCHS"
@@ -35,6 +40,91 @@ build_path_for_arch() {
 binary_path_for_arch() {
   printf '%s/%s\n' "$(build_path_for_arch "$1")/$BUILD_CONFIG" "$PRODUCT_NAME"
 }
+
+codesign_runtime_args=(
+  --force
+  --options runtime
+)
+if [[ "$SIGN_WITH_TIMESTAMP" == "1" ]]; then
+  codesign_runtime_args+=(--timestamp)
+fi
+
+codesign_container_args=(--force)
+if [[ "$SIGN_WITH_TIMESTAMP" == "1" ]]; then
+  codesign_container_args+=(--timestamp)
+fi
+
+sign_runtime_item() {
+  local target="$1"
+  if [[ -z "$SIGNING_IDENTITY" ]]; then
+    return 0
+  fi
+
+  /usr/bin/codesign \
+    "${codesign_runtime_args[@]}" \
+    --sign "$SIGNING_IDENTITY" \
+    "$target"
+}
+
+sign_container_item() {
+  local target="$1"
+  if [[ -z "$SIGNING_IDENTITY" ]]; then
+    return 0
+  fi
+
+  /usr/bin/codesign \
+    "${codesign_container_args[@]}" \
+    --sign "$SIGNING_IDENTITY" \
+    "$target"
+}
+
+verify_output_format() {
+  case "$OUTPUT_FORMAT" in
+    app|zip|dmg|both)
+      ;;
+    *)
+      echo "Unsupported OUTPUT_FORMAT: $OUTPUT_FORMAT" >&2
+      exit 1
+      ;;
+  esac
+}
+
+create_zip() {
+  echo "==> Creating zip artifact"
+  rm -f "$ZIP_PATH"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_ROOT" "$ZIP_PATH"
+  echo "Created zip artifact: $ZIP_PATH"
+}
+
+create_dmg() {
+  local dmg_staging
+  dmg_staging="$(mktemp -d "$DIST_DIR/dmg-staging.XXXXXX")"
+
+  echo "==> Preparing DMG contents"
+  cp -R "$APP_ROOT" "$dmg_staging/$APP_NAME"
+  ln -s /Applications "$dmg_staging/Applications"
+
+  echo "==> Creating DMG artifact"
+  rm -f "$DMG_PATH"
+  /usr/bin/hdiutil create \
+    -volname "$PRODUCT_NAME" \
+    -srcfolder "$dmg_staging" \
+    -ov \
+    -format UDZO \
+    "$DMG_PATH"
+
+  if [[ -n "$SIGNING_IDENTITY" ]]; then
+    echo "==> Signing DMG"
+    sign_container_item "$DMG_PATH"
+  fi
+
+  rm -rf "$dmg_staging"
+  echo "Created DMG artifact: $DMG_PATH"
+}
+
+verify_output_format
+
+mkdir -p "$DIST_DIR"
 
 echo "==> Building $PRODUCT_NAME [$BUILD_CONFIG] for: ${BUILD_ARCH_ARRAY[*]}"
 for arch in "${BUILD_ARCH_ARRAY[@]}"; do
@@ -79,14 +169,6 @@ echo "==> Embedding Swift runtime libraries"
   --scan-executable "$MACOS_DIR/$PRODUCT_NAME" \
   --destination "$FRAMEWORKS_DIR"
 
-echo "==> Ad-hoc signing app bundle"
-/usr/bin/codesign \
-  --force \
-  --deep \
-  --options runtime \
-  --sign - \
-  "$APP_ROOT"
-
 echo "==> Writing build metadata"
 cat > "$RESOURCES_DIR/build-info.txt" <<EOF
 name=$PRODUCT_NAME
@@ -96,9 +178,30 @@ commit=$GIT_COMMIT
 architectures=${BUILD_ARCH_ARRAY[*]}
 EOF
 
-echo "==> Creating zip artifact"
-rm -f "$ZIP_PATH"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_ROOT" "$ZIP_PATH"
+if [[ -n "$SIGNING_IDENTITY" ]]; then
+  echo "==> Signing embedded runtime libraries"
+  while IFS= read -r -d '' path; do
+    sign_runtime_item "$path"
+  done < <(find "$FRAMEWORKS_DIR" -type f -name '*.dylib' -print0)
+
+  echo "==> Signing app bundle"
+  sign_runtime_item "$MACOS_DIR/$PRODUCT_NAME"
+  sign_runtime_item "$APP_ROOT"
+fi
+
+case "$OUTPUT_FORMAT" in
+  app)
+    ;;
+  zip)
+    create_zip
+    ;;
+  dmg)
+    create_dmg
+    ;;
+  both)
+    create_zip
+    create_dmg
+    ;;
+esac
 
 echo "Created app bundle: $APP_ROOT"
-echo "Created zip artifact: $ZIP_PATH"

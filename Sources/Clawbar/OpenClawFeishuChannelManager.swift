@@ -18,6 +18,65 @@ struct FeishuAppCredentials: Equatable, Sendable {
     }
 }
 
+enum FeishuTenantBrand: String, CaseIterable, Codable, Equatable, Sendable {
+    case feishu
+    case lark
+
+    var registrationBaseURL: URL {
+        switch self {
+        case .feishu:
+            return URL(string: "https://accounts.feishu.cn")!
+        case .lark:
+            return URL(string: "https://accounts.larksuite.com")!
+        }
+    }
+
+    var configValue: String {
+        rawValue
+    }
+}
+
+enum FeishuSetupMode: String, CaseIterable, Identifiable, Equatable, Sendable {
+    case reuseConfiguredBot
+    case useProvidedCredentials
+    case createOrConfigureNewBot
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .reuseConfiguredBot:
+            return "继续使用当前已配置机器人"
+        case .useProvidedCredentials:
+            return "手动输入 App ID / Secret"
+        case .createOrConfigureNewBot:
+            return "扫码创建/配置新机器人"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .reuseConfiguredBot:
+            return "复用 OpenClaw 当前配置里的 Feishu 机器人。"
+        case .useProvidedCredentials:
+            return "直接输入已有机器人的 App ID 和 App Secret。"
+        case .createOrConfigureNewBot:
+            return "按飞书官方流程扫码创建并配置 Personal Agent。"
+        }
+    }
+}
+
+enum FeishuOnboardingState: String, Equatable, Sendable {
+    case idle
+    case selectingMode
+    case waitingForScan
+    case pollingRegistration
+    case installingPlugin
+    case enablingChannel
+    case diagnosing
+    case ready
+}
+
 enum FeishuChannelStage: String, Equatable, Sendable {
     case preflight
     case install
@@ -38,6 +97,7 @@ enum FeishuChannelAction: String, Equatable, Sendable {
 
 struct FeishuChannelStatusSnapshot: Equatable, Sendable {
     let stage: FeishuChannelStage
+    let onboardingState: FeishuOnboardingState
     let pluginInstalled: Bool
     let channelEnabled: Bool
     let gatewayReachable: Bool
@@ -46,6 +106,12 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
     let npxBinaryPath: String?
     let openClawVersion: String?
     let pluginVersion: String?
+    let reusableConfiguredBotAvailable: Bool
+    let setupMode: FeishuSetupMode
+    let qrCodeURL: String?
+    let browserURL: String?
+    let scannedOwnerOpenID: String?
+    let tenantBrand: FeishuTenantBrand?
     let summary: String
     let detail: String
     let continueURL: String?
@@ -53,6 +119,7 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
 
     static let idle = FeishuChannelStatusSnapshot(
         stage: .preflight,
+        onboardingState: .idle,
         pluginInstalled: false,
         channelEnabled: false,
         gatewayReachable: false,
@@ -61,11 +128,63 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
         npxBinaryPath: nil,
         openClawVersion: nil,
         pluginVersion: nil,
+        reusableConfiguredBotAvailable: false,
+        setupMode: .createOrConfigureNewBot,
+        qrCodeURL: nil,
+        browserURL: nil,
+        scannedOwnerOpenID: nil,
+        tenantBrand: nil,
         summary: "等待检查 Feishu 状态",
         detail: "Clawbar 会读取官方插件安装状态、Feishu channel 配置和 Gateway 状态。",
         continueURL: nil,
         logSummary: nil
     )
+
+    func updating(
+        stage: FeishuChannelStage? = nil,
+        onboardingState: FeishuOnboardingState? = nil,
+        pluginInstalled: Bool? = nil,
+        channelEnabled: Bool? = nil,
+        gatewayReachable: Bool? = nil,
+        doctorHealthy: Bool?? = nil,
+        openClawBinaryPath: String?? = nil,
+        npxBinaryPath: String?? = nil,
+        openClawVersion: String?? = nil,
+        pluginVersion: String?? = nil,
+        reusableConfiguredBotAvailable: Bool? = nil,
+        setupMode: FeishuSetupMode? = nil,
+        qrCodeURL: String?? = nil,
+        browserURL: String?? = nil,
+        scannedOwnerOpenID: String?? = nil,
+        tenantBrand: FeishuTenantBrand?? = nil,
+        summary: String? = nil,
+        detail: String? = nil,
+        continueURL: String?? = nil,
+        logSummary: String?? = nil
+    ) -> Self {
+        Self(
+            stage: stage ?? self.stage,
+            onboardingState: onboardingState ?? self.onboardingState,
+            pluginInstalled: pluginInstalled ?? self.pluginInstalled,
+            channelEnabled: channelEnabled ?? self.channelEnabled,
+            gatewayReachable: gatewayReachable ?? self.gatewayReachable,
+            doctorHealthy: doctorHealthy ?? self.doctorHealthy,
+            openClawBinaryPath: openClawBinaryPath ?? self.openClawBinaryPath,
+            npxBinaryPath: npxBinaryPath ?? self.npxBinaryPath,
+            openClawVersion: openClawVersion ?? self.openClawVersion,
+            pluginVersion: pluginVersion ?? self.pluginVersion,
+            reusableConfiguredBotAvailable: reusableConfiguredBotAvailable ?? self.reusableConfiguredBotAvailable,
+            setupMode: setupMode ?? self.setupMode,
+            qrCodeURL: qrCodeURL ?? self.qrCodeURL,
+            browserURL: browserURL ?? self.browserURL,
+            scannedOwnerOpenID: scannedOwnerOpenID ?? self.scannedOwnerOpenID,
+            tenantBrand: tenantBrand ?? self.tenantBrand,
+            summary: summary ?? self.summary,
+            detail: detail ?? self.detail,
+            continueURL: continueURL ?? self.continueURL,
+            logSummary: logSummary ?? self.logSummary
+        )
+    }
 }
 
 private struct FeishuPluginInfo: Equatable, Sendable {
@@ -108,6 +227,11 @@ private struct FeishuVersion: Comparable, Equatable, Sendable {
     }
 }
 
+private struct FeishuOnboardingDefaultsContext: Equatable, Sendable {
+    let ownerOpenID: String?
+    let tenantBrand: FeishuTenantBrand?
+}
+
 @MainActor
 final class OpenClawFeishuChannelManager: ObservableObject {
     static let shared = OpenClawFeishuChannelManager()
@@ -120,6 +244,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         _ outputHandler: @escaping @Sendable (String) -> Void,
         _ terminationHandler: @escaping @Sendable (Int32) -> Void
     ) throws -> Process
+    typealias SleepHandler = @Sendable (_ nanoseconds: UInt64) async throws -> Void
 
     fileprivate nonisolated static let minimumOpenClawVersion = FeishuVersion(string: "2026.2.26")!
 
@@ -133,28 +258,50 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     private let environmentProvider: EnvironmentProvider
     private let runCommand: CommandRunner
     private let makeStreamingProcess: StreamingProcessFactory
+    private let registrationClient: FeishuRegistrationClient
+    private let sleep: SleepHandler
+
     private var activeProcess: Process?
+    private var onboardingTask: Task<Void, Never>?
+    private var pendingOnboardingDefaults: FeishuOnboardingDefaultsContext?
 
     init(
         environmentProvider: @escaping EnvironmentProvider = { ProcessInfo.processInfo.environment },
         runCommand: @escaping CommandRunner = ChannelCommandSupport.runCommand,
-        makeStreamingProcess: @escaping StreamingProcessFactory = ChannelCommandSupport.makeStreamingProcess
+        makeStreamingProcess: @escaping StreamingProcessFactory = ChannelCommandSupport.makeStreamingProcess,
+        registrationClient: FeishuRegistrationClient = .live,
+        sleep: @escaping SleepHandler = { try await Task.sleep(nanoseconds: $0) }
     ) {
         self.environmentProvider = environmentProvider
         self.runCommand = runCommand
         self.makeStreamingProcess = makeStreamingProcess
+        self.registrationClient = registrationClient
+        self.sleep = sleep
     }
 
     var isBusy: Bool {
-        isRefreshing || activeAction != nil
+        isRefreshing || activeAction != nil || onboardingTask != nil
     }
 
     var isEnabled: Bool {
         toggleIntent || snapshot.channelEnabled
     }
 
+    var isOnboardingActive: Bool {
+        switch snapshot.onboardingState {
+        case .waitingForScan, .pollingRegistration, .installingPlugin, .enablingChannel:
+            return true
+        case .idle, .selectingMode, .diagnosing, .ready:
+            return false
+        }
+    }
+
     var canStartEnableFlow: Bool {
-        primaryAction == .enable
+        guard primaryAction == .enable else { return false }
+        if snapshot.setupMode == .reuseConfiguredBot {
+            return snapshot.reusableConfiguredBotAvailable
+        }
+        return true
     }
 
     var statusLabel: String {
@@ -162,7 +309,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         case .preflight:
             return "环境待检查"
         case .install:
-            return "未安装"
+            return "待安装"
         case .configure:
             return "配置中"
         case .verify:
@@ -192,27 +339,39 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     }
 
     var primaryActionTitle: String {
-        switch primaryAction {
-        case .enable:
-            return snapshot.pluginInstalled ? "重新启用" : "开始安装并启用"
-        case .disable:
-            return "停用"
-        case .retry:
-            switch snapshot.stage {
-            case .configure:
-                return "继续配置"
-            case .ready:
-                return "重新验证"
-            default:
-                return "重新检查"
+        switch snapshot.stage {
+        case .install:
+            switch snapshot.setupMode {
+            case .reuseConfiguredBot:
+                return "继续使用当前已配置机器人"
+            case .useProvidedCredentials:
+                return "使用输入凭证继续"
+            case .createOrConfigureNewBot:
+                return "开始扫码创建/配置"
             }
+        case .configure:
+            if snapshot.browserURL != nil {
+                return "在浏览器打开"
+            }
+            return "继续配置"
+        case .verify:
+            return snapshot.channelEnabled ? "重新验证" : "重新启用"
         case .diagnose:
-            return "运行诊断"
-        case .fix:
             return "运行修复"
-        case .refresh:
-            return "刷新状态"
+        case .ready:
+            return "重新验证"
+        case .preflight:
+            return "重新检查"
         }
+    }
+
+    func selectSetupMode(_ mode: FeishuSetupMode) {
+        snapshot = snapshot.updating(
+            setupMode: Self.resolvedSetupMode(
+                preferred: mode,
+                reusableConfiguredBotAvailable: snapshot.reusableConfiguredBotAvailable
+            )
+        )
     }
 
     func refreshStatus() {
@@ -220,6 +379,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
 
         let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let runCommand = runCommand
+        let currentSetupMode = snapshot.setupMode
 
         isRefreshing = true
 
@@ -238,27 +398,33 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 openClawBinaryPath: openClawBinaryPath,
                 npxBinaryPath: npxBinaryPath,
                 environment: environment,
-                runCommand: runCommand
+                runCommand: runCommand,
+                currentSetupMode: currentSetupMode
             )
 
             await MainActor.run {
                 self.isRefreshing = false
                 self.lastRefreshDate = Date()
                 self.snapshot = snapshot
-                if self.activeAction == nil {
+                if !self.isOnboardingActive && self.activeAction == nil {
                     self.toggleIntent = snapshot.channelEnabled
                 }
             }
         }
     }
 
-    func runPrimaryAction(existingAppCredentials: FeishuAppCredentials?) {
+    func runPrimaryAction(existingAppCredentials: FeishuAppCredentials? = nil) {
         switch primaryAction {
         case .enable:
             enable(using: existingAppCredentials)
         case .disable:
             disable()
         case .retry, .refresh:
+            if snapshot.stage == .configure,
+               let browserURL = snapshot.browserURL,
+               !browserURL.isEmpty {
+                return
+            }
             refreshStatus()
         case .diagnose:
             runDoctor()
@@ -267,8 +433,8 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         }
     }
 
-    func enable(using existingAppCredentials: FeishuAppCredentials? = nil) {
-        guard activeAction == nil else { return }
+    func enable(using manualCredentials: FeishuAppCredentials? = nil) {
+        guard activeAction == nil, onboardingTask == nil else { return }
         guard canStartEnableFlow else { return }
         toggleIntent = true
 
@@ -277,64 +443,36 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             return
         }
 
-        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
-        guard let npxBinaryPath = ChannelCommandSupport.detectBinaryPath(
-            named: "npx",
-            environment: environment,
-            runCommand: runCommand
-        ) else {
-            snapshot = FeishuChannelStatusSnapshot(
-                stage: .preflight,
-                pluginInstalled: false,
-                channelEnabled: false,
-                gatewayReachable: false,
-                doctorHealthy: nil,
-                openClawBinaryPath: snapshot.openClawBinaryPath,
-                npxBinaryPath: nil,
-                openClawVersion: snapshot.openClawVersion,
-                pluginVersion: snapshot.pluginVersion,
-                summary: "未检测到 npx",
-                detail: "Feishu 官方插件通过 npx 分发，请先确保当前环境可执行 npx。",
-                continueURL: nil,
-                logSummary: nil
+        switch snapshot.setupMode {
+        case .reuseConfiguredBot:
+            startInstallFlow(
+                mode: .reuseConfiguredBot,
+                credentials: nil,
+                defaultsContext: nil
             )
-            toggleIntent = false
-            return
+        case .useProvidedCredentials:
+            guard let manualCredentials, manualCredentials.isComplete else {
+                toggleIntent = false
+                return
+            }
+            startInstallFlow(
+                mode: .useProvidedCredentials,
+                credentials: manualCredentials,
+                defaultsContext: nil
+            )
+        case .createOrConfigureNewBot:
+            startRegistrationFlow()
         }
-
-        snapshot = FeishuChannelStatusSnapshot(
-            stage: .install,
-            pluginInstalled: false,
-            channelEnabled: false,
-            gatewayReachable: snapshot.gatewayReachable,
-            doctorHealthy: nil,
-            openClawBinaryPath: snapshot.openClawBinaryPath,
-            npxBinaryPath: OpenClawInstaller.displayBinaryPath(npxBinaryPath),
-            openClawVersion: snapshot.openClawVersion,
-            pluginVersion: snapshot.pluginVersion,
-            summary: "正在安装并启用 Feishu 官方插件...",
-            detail: "Clawbar 会在后台执行官方 CLI，并把下一步浏览器链接展示在这里。",
-            continueURL: nil,
-            logSummary: nil
-        )
-        lastCommandOutput = "$ \(Self.installLogCommand(credentials: existingAppCredentials))\n\n"
-        activeAction = .enable
-
-        startStreamingCommand(
-            command: Self.installCommand(credentials: existingAppCredentials),
-            environment: environment,
-            activeAction: .enable
-        )
     }
 
     func disable() {
-        guard activeAction == nil else { return }
+        guard activeAction == nil, onboardingTask == nil else { return }
         toggleIntent = false
         setChannelEnabled(false, summary: "正在停用 Feishu Channel...")
     }
 
     func runDoctor() {
-        guard activeAction == nil else { return }
+        guard activeAction == nil, onboardingTask == nil else { return }
         runOneShotCommand(
             action: .diagnose,
             summary: "正在运行 Feishu 诊断...",
@@ -344,7 +482,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     }
 
     func runDoctorFix() {
-        guard activeAction == nil else { return }
+        guard activeAction == nil, onboardingTask == nil else { return }
         runOneShotCommand(
             action: .fix,
             summary: "正在修复 Feishu 插件配置...",
@@ -353,11 +491,277 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         )
     }
 
+    func cancelActiveSetupFlow() {
+        onboardingTask?.cancel()
+        onboardingTask = nil
+        activeProcess?.terminate()
+        activeProcess = nil
+        pendingOnboardingDefaults = nil
+        activeAction = nil
+        toggleIntent = snapshot.channelEnabled
+        snapshot = snapshot.updating(
+            stage: snapshot.pluginInstalled ? (snapshot.channelEnabled ? .ready : .verify) : .install,
+            onboardingState: snapshot.pluginInstalled ? (snapshot.channelEnabled ? .ready : .idle) : .selectingMode,
+            qrCodeURL: nil,
+            browserURL: nil,
+            scannedOwnerOpenID: nil,
+            tenantBrand: nil,
+            summary: snapshot.pluginInstalled ? "已取消 Feishu 流程" : "已取消 Feishu 引导",
+            detail: snapshot.pluginInstalled ? "当前插件状态未变；如需继续可重新发起操作。" : "当前没有继续中的安装；可以重新选择模式后继续。",
+            continueURL: nil,
+            logSummary: "用户取消了当前 Feishu 流程。"
+        )
+    }
+
+    private func startRegistrationFlow() {
+        guard onboardingTask == nil else { return }
+
+        lastCommandOutput = "$ feishu registration init\n$ feishu registration begin\n\n"
+        snapshot = snapshot.updating(
+            stage: .configure,
+            onboardingState: .waitingForScan,
+            qrCodeURL: nil,
+            browserURL: nil,
+            scannedOwnerOpenID: nil,
+            tenantBrand: .feishu,
+            summary: "正在准备飞书扫码配置",
+            detail: "Clawbar 正在向飞书官方注册接口申请当前设备的扫码会话。",
+            continueURL: nil,
+            logSummary: nil
+        )
+
+        let registrationClient = registrationClient
+        let sleep = self.sleep
+
+        onboardingTask = Task.detached(priority: .userInitiated) {
+            do {
+                _ = try await registrationClient.initialize()
+                let beginResponse = try await registrationClient.begin(brand: .feishu)
+                await MainActor.run {
+                    self.appendLogLine(beginResponse.verificationURL)
+                    self.snapshot = self.snapshot.updating(
+                        stage: .configure,
+                        onboardingState: .waitingForScan,
+                        qrCodeURL: beginResponse.verificationURL,
+                        browserURL: beginResponse.verificationURL,
+                        summary: "请使用飞书扫码配置机器人",
+                        detail: "二维码已提取到当前页面，无需查看 Terminal；扫码后 Clawbar 会继续轮询配置结果。",
+                        continueURL: beginResponse.verificationURL
+                    )
+                }
+
+                let expiry = Date().addingTimeInterval(TimeInterval(beginResponse.expiresIn ?? 600))
+                var pollBrand: FeishuTenantBrand = .feishu
+                var intervalSeconds = max(beginResponse.interval ?? 5, 1)
+
+                while Date() < expiry {
+                    try Task.checkCancellation()
+
+                    await MainActor.run {
+                        self.snapshot = self.snapshot.updating(
+                            stage: .configure,
+                            onboardingState: .pollingRegistration,
+                            tenantBrand: pollBrand,
+                            summary: "等待扫码完成并返回机器人配置",
+                            detail: "如果已在手机中完成扫码或授权，Clawbar 会自动继续安装插件。"
+                        )
+                    }
+
+                    let pollResponse = try await registrationClient.poll(
+                        deviceCode: beginResponse.deviceCode,
+                        brand: pollBrand
+                    )
+
+                    if let tenantBrand = pollResponse.userInfo?.tenantBrand,
+                       tenantBrand != pollBrand {
+                        pollBrand = tenantBrand
+                        await MainActor.run {
+                            self.appendLogLine("Detected tenant brand: \(tenantBrand.rawValue)")
+                            self.snapshot = self.snapshot.updating(tenantBrand: tenantBrand)
+                        }
+                    }
+
+                    if let clientID = trimmedNonEmpty(pollResponse.clientID),
+                       let clientSecret = trimmedNonEmpty(pollResponse.clientSecret) {
+                        let credentials = FeishuAppCredentials(appID: clientID, appSecret: clientSecret)
+                        let defaultsContext = FeishuOnboardingDefaultsContext(
+                            ownerOpenID: trimmedNonEmpty(pollResponse.userInfo?.openID),
+                            tenantBrand: pollResponse.userInfo?.tenantBrand ?? pollBrand
+                        )
+                        await MainActor.run {
+                            self.onboardingTask = nil
+                            self.snapshot = self.snapshot.updating(
+                                stage: .install,
+                                onboardingState: .installingPlugin,
+                                scannedOwnerOpenID: defaultsContext.ownerOpenID,
+                                tenantBrand: defaultsContext.tenantBrand,
+                                summary: "扫码成功，正在安装 Feishu 插件",
+                                detail: "Clawbar 已拿到机器人凭证，接下来会调用官方 CLI 写入配置并安装插件。"
+                            )
+                            self.startInstallFlow(
+                                mode: .createOrConfigureNewBot,
+                                credentials: credentials,
+                                defaultsContext: defaultsContext
+                            )
+                        }
+                        return
+                    }
+
+                    if let error = trimmedNonEmpty(pollResponse.error) {
+                        switch error {
+                        case "authorization_pending":
+                            break
+                        case "slow_down":
+                            intervalSeconds += 5
+                            await MainActor.run {
+                                self.appendLogLine("registration poll requested slow_down")
+                                self.snapshot = self.snapshot.updating(
+                                    detail: "飞书要求放慢轮询速度，Clawbar 会继续等待扫码结果。"
+                                )
+                            }
+                        case "access_denied":
+                            await MainActor.run {
+                                self.onboardingTask = nil
+                                self.toggleIntent = false
+                                self.snapshot = self.snapshot.updating(
+                                    stage: .diagnose,
+                                    onboardingState: .diagnosing,
+                                    summary: "用户取消了飞书扫码授权",
+                                    detail: pollResponse.errorDescription ?? "飞书返回 access_denied，可重新扫码发起新会话。",
+                                    logSummary: pollResponse.errorDescription ?? error
+                                )
+                            }
+                            return
+                        case "expired_token":
+                            await MainActor.run {
+                                self.onboardingTask = nil
+                                self.toggleIntent = false
+                                self.snapshot = self.snapshot.updating(
+                                    stage: .diagnose,
+                                    onboardingState: .diagnosing,
+                                    summary: "飞书扫码会话已过期",
+                                    detail: "请重新发起扫码；当前二维码已经失效。",
+                                    logSummary: pollResponse.errorDescription ?? error
+                                )
+                            }
+                            return
+                        default:
+                            await MainActor.run {
+                                self.onboardingTask = nil
+                                self.toggleIntent = false
+                                self.snapshot = self.snapshot.updating(
+                                    stage: .diagnose,
+                                    onboardingState: .diagnosing,
+                                    summary: "飞书扫码流程失败",
+                                    detail: pollResponse.errorDescription ?? error,
+                                    logSummary: pollResponse.errorDescription ?? error
+                                )
+                            }
+                            return
+                        }
+                    }
+
+                    try await sleep(UInt64(intervalSeconds) * 1_000_000_000)
+                }
+
+                await MainActor.run {
+                    self.onboardingTask = nil
+                    self.toggleIntent = false
+                    self.snapshot = self.snapshot.updating(
+                        stage: .diagnose,
+                        onboardingState: .diagnosing,
+                        summary: "飞书扫码会话超时",
+                        detail: "在有效期内没有拿到机器人配置结果，请重新发起扫码。",
+                        logSummary: "Feishu registration timed out."
+                    )
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.onboardingTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.onboardingTask = nil
+                    self.toggleIntent = false
+                    self.snapshot = self.snapshot.updating(
+                        stage: .diagnose,
+                        onboardingState: .diagnosing,
+                        summary: "无法完成飞书扫码引导",
+                        detail: error.localizedDescription,
+                        logSummary: error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    private func startInstallFlow(
+        mode: FeishuSetupMode,
+        credentials: FeishuAppCredentials?,
+        defaultsContext: FeishuOnboardingDefaultsContext?
+    ) {
+        guard activeAction == nil else { return }
+
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
+        guard let npxBinaryPath = ChannelCommandSupport.detectBinaryPath(
+            named: "npx",
+            environment: environment,
+            runCommand: runCommand
+        ) else {
+            snapshot = snapshot.updating(
+                stage: .preflight,
+                onboardingState: .idle,
+                npxBinaryPath: .some(nil),
+                summary: "未检测到 npx",
+                detail: "Feishu 官方插件通过 npx 分发，请先确保当前环境可执行 npx。",
+                logSummary: nil
+            )
+            toggleIntent = false
+            return
+        }
+
+        let command = Self.installCommand(mode: mode, credentials: credentials)
+        let logCommand = Self.installLogCommand(mode: mode, credentials: credentials)
+        pendingOnboardingDefaults = defaultsContext
+        activeAction = .enable
+        lastCommandOutput = lastCommandOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !lastCommandOutput.isEmpty {
+            lastCommandOutput += "\n\n"
+        }
+        lastCommandOutput += "$ \(logCommand)\n\n"
+
+        snapshot = snapshot.updating(
+            stage: .install,
+            onboardingState: .installingPlugin,
+            npxBinaryPath: .some(OpenClawInstaller.displayBinaryPath(npxBinaryPath)),
+            summary: Self.installSummary(for: mode),
+            detail: Self.installDetail(for: mode)
+        )
+
+        startStreamingCommand(
+            command: command,
+            environment: environment,
+            activeAction: .enable
+        )
+    }
+
     private func setChannelEnabled(_ enabled: Bool, summary: String) {
         let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let runCommand = runCommand
         activeAction = enabled ? .enable : .disable
-        lastCommandOutput = "$ openclaw config set channels.feishu.enabled \(enabled ? "true" : "false") --strict-json\n\n"
+        if !lastCommandOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !lastCommandOutput.hasSuffix("\n") {
+                lastCommandOutput += "\n"
+            }
+            lastCommandOutput += "\n"
+        }
+        lastCommandOutput += "$ openclaw config set channels.feishu.enabled \(enabled ? "true" : "false") --strict-json\n\n"
+        snapshot = snapshot.updating(
+            stage: .verify,
+            onboardingState: enabled ? .enablingChannel : .idle,
+            summary: summary,
+            detail: enabled ? "Clawbar 正在写入 `channels.feishu.enabled=true` 并重启 Gateway。" : "Clawbar 正在停用当前 Feishu channel。"
+        )
 
         Task.detached(priority: .userInitiated) {
             let openClawBinaryPath = ChannelCommandSupport.detectBinaryPath(
@@ -370,19 +774,14 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 await MainActor.run {
                     self.activeAction = nil
                     self.toggleIntent = false
-                    self.snapshot = FeishuChannelStatusSnapshot(
+                    self.snapshot = self.snapshot.updating(
                         stage: .preflight,
-                        pluginInstalled: self.snapshot.pluginInstalled,
+                        onboardingState: .idle,
                         channelEnabled: false,
                         gatewayReachable: false,
-                        doctorHealthy: nil,
-                        openClawBinaryPath: nil,
-                        npxBinaryPath: self.snapshot.npxBinaryPath,
-                        openClawVersion: self.snapshot.openClawVersion,
-                        pluginVersion: self.snapshot.pluginVersion,
+                        openClawBinaryPath: .some(nil),
                         summary: "未检测到 OpenClaw",
                         detail: "请先安装 OpenClaw，再管理 Feishu Channel。",
-                        continueURL: nil,
                         logSummary: nil
                     )
                 }
@@ -408,20 +807,13 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                     if enabled {
                         self.toggleIntent = self.snapshot.channelEnabled
                     }
-                    self.snapshot = FeishuChannelStatusSnapshot(
+                    self.snapshot = self.snapshot.updating(
                         stage: .diagnose,
-                        pluginInstalled: self.snapshot.pluginInstalled,
-                        channelEnabled: self.snapshot.channelEnabled,
-                        gatewayReachable: self.snapshot.gatewayReachable,
-                        doctorHealthy: false,
-                        openClawBinaryPath: self.snapshot.openClawBinaryPath,
-                        npxBinaryPath: self.snapshot.npxBinaryPath,
-                        openClawVersion: self.snapshot.openClawVersion,
-                        pluginVersion: self.snapshot.pluginVersion,
+                        onboardingState: .diagnosing,
+                        doctorHealthy: .some(false),
                         summary: enabled ? "Feishu Channel 启用失败" : "Feishu Channel 停用失败",
                         detail: detail,
-                        continueURL: nil,
-                        logSummary: detail
+                        logSummary: .some(detail)
                     )
                 }
                 return
@@ -435,26 +827,19 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             )
 
             await MainActor.run {
-                if !self.lastCommandOutput.hasSuffix("\n") { self.lastCommandOutput += "\n" }
+                if !self.lastCommandOutput.hasSuffix("\n") {
+                    self.lastCommandOutput += "\n"
+                }
                 self.lastCommandOutput += "\n$ openclaw gateway restart --json\n\n"
                 self.lastCommandOutput += restartResult.output
-            }
-
-            await MainActor.run {
-                self.snapshot = FeishuChannelStatusSnapshot(
+                self.snapshot = self.snapshot.updating(
                     stage: .verify,
-                    pluginInstalled: self.snapshot.pluginInstalled,
+                    onboardingState: enabled ? .enablingChannel : .idle,
                     channelEnabled: enabled,
-                    gatewayReachable: self.snapshot.gatewayReachable,
-                    doctorHealthy: nil,
-                    openClawBinaryPath: OpenClawInstaller.displayBinaryPath(openClawBinaryPath),
-                    npxBinaryPath: self.snapshot.npxBinaryPath,
-                    openClawVersion: self.snapshot.openClawVersion,
-                    pluginVersion: self.snapshot.pluginVersion,
+                    openClawBinaryPath: .some(OpenClawInstaller.displayBinaryPath(openClawBinaryPath)),
                     summary: summary,
                     detail: "配置已写入，Clawbar 正在重新验证插件和 Gateway 状态。",
-                    continueURL: nil,
-                    logSummary: trimmedNonEmpty(restartResult.output)
+                    logSummary: .some(trimmedNonEmpty(restartResult.output))
                 )
                 self.activeAction = nil
                 self.refreshStatus()
@@ -472,19 +857,14 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         let runCommand = runCommand
         activeAction = action
         lastCommandOutput = "$ \(command)\n\n"
-        snapshot = FeishuChannelStatusSnapshot(
+        snapshot = snapshot.updating(
             stage: action == .fix ? .diagnose : snapshot.stage,
-            pluginInstalled: snapshot.pluginInstalled,
-            channelEnabled: snapshot.channelEnabled,
-            gatewayReachable: snapshot.gatewayReachable,
-            doctorHealthy: snapshot.doctorHealthy,
-            openClawBinaryPath: snapshot.openClawBinaryPath,
-            npxBinaryPath: snapshot.npxBinaryPath,
-            openClawVersion: snapshot.openClawVersion,
-            pluginVersion: snapshot.pluginVersion,
+            onboardingState: .diagnosing,
+            qrCodeURL: .some(nil),
+            browserURL: .some(nil),
             summary: summary,
             detail: detail,
-            continueURL: nil,
+            continueURL: .some(nil),
             logSummary: nil
         )
 
@@ -504,20 +884,162 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 } else {
                     let failureDetail = ChannelCommandSupport.extractFailureDetail(from: result.output)
                         ?? "命令执行失败。"
-                    self.snapshot = FeishuChannelStatusSnapshot(
+                    self.snapshot = self.snapshot.updating(
                         stage: .diagnose,
-                        pluginInstalled: self.snapshot.pluginInstalled,
-                        channelEnabled: self.snapshot.channelEnabled,
-                        gatewayReachable: self.snapshot.gatewayReachable,
-                        doctorHealthy: false,
-                        openClawBinaryPath: self.snapshot.openClawBinaryPath,
-                        npxBinaryPath: self.snapshot.npxBinaryPath,
-                        openClawVersion: self.snapshot.openClawVersion,
-                        pluginVersion: self.snapshot.pluginVersion,
+                        onboardingState: .diagnosing,
+                        doctorHealthy: .some(false),
                         summary: action == .fix ? "自动修复失败" : "诊断发现异常",
                         detail: failureDetail,
-                        continueURL: nil,
-                        logSummary: failureDetail
+                        logSummary: .some(failureDetail)
+                    )
+                }
+            }
+        }
+    }
+
+    private func applyOnboardingDefaultsAndEnable(_ context: FeishuOnboardingDefaultsContext) {
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
+        let runCommand = runCommand
+
+        activeAction = .enable
+        snapshot = snapshot.updating(
+            stage: .verify,
+            onboardingState: .enablingChannel,
+            summary: "正在补齐飞书默认权限配置",
+            detail: "Clawbar 会把扫码得到的 owner 和域名信息写回 OpenClaw，再继续启用 Channel。"
+        )
+
+        Task.detached(priority: .userInitiated) {
+            guard let openClawBinaryPath = ChannelCommandSupport.detectBinaryPath(
+                named: "openclaw",
+                environment: environment,
+                runCommand: runCommand
+            ) else {
+                await MainActor.run {
+                    self.activeAction = nil
+                    self.toggleIntent = false
+                    self.snapshot = self.snapshot.updating(
+                        stage: .diagnose,
+                        onboardingState: .diagnosing,
+                        summary: "无法补齐飞书默认配置",
+                        detail: "没有找到 openclaw CLI，无法继续写入扫码得到的配置。",
+                        logSummary: .some("openclaw CLI not found")
+                    )
+                }
+                return
+            }
+
+            do {
+                if context.tenantBrand == .lark {
+                    try Self.writeJSONStringConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.domain",
+                        value: context.tenantBrand?.configValue,
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                }
+
+                if let ownerOpenID = trimmedNonEmpty(context.ownerOpenID) {
+                    try Self.writeJSONStringConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.dmPolicy",
+                        value: "allowlist",
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+
+                    let allowFrom = Self.mergeUniqueString(
+                        ownerOpenID,
+                        into: Self.readStringArrayConfig(
+                            openClawBinaryPath: openClawBinaryPath,
+                            environment: environment,
+                            runCommand: runCommand,
+                            path: "channels.feishu.allowFrom"
+                        )
+                    )
+                    try Self.writeJSONConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.allowFrom",
+                        value: allowFrom,
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+
+                    let currentGroupPolicy = Self.readStringConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.groupPolicy"
+                    )
+                    if currentGroupPolicy == nil {
+                        try Self.writeJSONStringConfig(
+                            openClawBinaryPath: openClawBinaryPath,
+                            environment: environment,
+                            runCommand: runCommand,
+                            path: "channels.feishu.groupPolicy",
+                            value: "allowlist",
+                            log: { line in await MainActor.run { self.appendLogLine(line) } }
+                        )
+                    }
+
+                    let groupAllowFrom = Self.mergeUniqueString(
+                        ownerOpenID,
+                        into: Self.readStringArrayConfig(
+                            openClawBinaryPath: openClawBinaryPath,
+                            environment: environment,
+                            runCommand: runCommand,
+                            path: "channels.feishu.groupAllowFrom"
+                        )
+                    )
+                    try Self.writeJSONConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.groupAllowFrom",
+                        value: groupAllowFrom,
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+
+                    var groups = Self.readJSONObjectConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.groups"
+                    ) ?? [:]
+                    var wildcard = groups["*"] as? [String: Any] ?? [:]
+                    wildcard["enabled"] = true
+                    groups["*"] = wildcard
+
+                    try Self.writeJSONConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.groups",
+                        value: groups,
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                }
+
+                await MainActor.run {
+                    self.pendingOnboardingDefaults = nil
+                    self.activeAction = nil
+                    self.setChannelEnabled(true, summary: "Feishu 插件安装完成，正在启用 Channel...")
+                }
+            } catch {
+                await MainActor.run {
+                    self.pendingOnboardingDefaults = nil
+                    self.activeAction = nil
+                    self.toggleIntent = false
+                    self.snapshot = self.snapshot.updating(
+                        stage: .diagnose,
+                        onboardingState: .diagnosing,
+                        summary: "写入飞书默认配置失败",
+                        detail: error.localizedDescription,
+                        logSummary: .some(error.localizedDescription)
                     )
                 }
             }
@@ -549,20 +1071,15 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             try process.run()
         } catch {
             self.activeAction = nil
-            self.snapshot = FeishuChannelStatusSnapshot(
+            self.pendingOnboardingDefaults = nil
+            self.toggleIntent = false
+            self.snapshot = self.snapshot.updating(
                 stage: .diagnose,
-                pluginInstalled: false,
-                channelEnabled: false,
-                gatewayReachable: false,
-                doctorHealthy: false,
-                openClawBinaryPath: snapshot.openClawBinaryPath,
-                npxBinaryPath: snapshot.npxBinaryPath,
-                openClawVersion: snapshot.openClawVersion,
-                pluginVersion: snapshot.pluginVersion,
+                onboardingState: .diagnosing,
+                doctorHealthy: .some(false),
                 summary: "无法启动 Feishu 安装流程",
                 detail: error.localizedDescription,
-                continueURL: nil,
-                logSummary: error.localizedDescription
+                logSummary: .some(error.localizedDescription)
             )
         }
     }
@@ -574,21 +1091,33 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         }
 
         let progress = Self.parseInstallProgress(from: lastCommandOutput)
-        snapshot = FeishuChannelStatusSnapshot(
-            stage: progress.stage,
-            pluginInstalled: progress.stage == .verify || progress.stage == .ready,
-            channelEnabled: snapshot.channelEnabled,
-            gatewayReachable: snapshot.gatewayReachable,
-            doctorHealthy: snapshot.doctorHealthy,
-            openClawBinaryPath: snapshot.openClawBinaryPath,
-            npxBinaryPath: snapshot.npxBinaryPath,
-            openClawVersion: snapshot.openClawVersion,
-            pluginVersion: snapshot.pluginVersion,
-            summary: progress.summary,
-            detail: progress.detail,
-            continueURL: progress.continueURL,
-            logSummary: Self.logSummary(from: lastCommandOutput)
+        var nextSnapshot = snapshot.updating(
+            logSummary: .some(Self.logSummary(from: lastCommandOutput))
         )
+
+        if nextSnapshot.browserURL == nil,
+           let continueURL = progress.continueURL {
+            nextSnapshot = nextSnapshot.updating(
+                browserURL: .some(continueURL),
+                continueURL: .some(continueURL)
+            )
+        }
+
+        if snapshot.setupMode != .createOrConfigureNewBot,
+           snapshot.onboardingState == .installingPlugin,
+           progress.stage == .configure,
+           let continueURL = progress.continueURL {
+            nextSnapshot = nextSnapshot.updating(
+                stage: .configure,
+                onboardingState: .pollingRegistration,
+                browserURL: .some(continueURL),
+                summary: progress.summary,
+                detail: progress.detail,
+                continueURL: .some(continueURL)
+            )
+        }
+
+        snapshot = nextSnapshot
     }
 
     private func finishStreamingCommand(status: Int32, action: FeishuChannelAction) {
@@ -597,7 +1126,11 @@ final class OpenClawFeishuChannelManager: ObservableObject {
 
         if status == 0 {
             if action == .enable {
-                setChannelEnabled(true, summary: "Feishu 插件安装完成，正在启用 Channel...")
+                if let pendingOnboardingDefaults {
+                    applyOnboardingDefaultsAndEnable(pendingOnboardingDefaults)
+                } else {
+                    setChannelEnabled(true, summary: "Feishu 插件安装完成，正在启用 Channel...")
+                }
                 return
             }
 
@@ -607,90 +1140,78 @@ final class OpenClawFeishuChannelManager: ObservableObject {
 
         let detail = ChannelCommandSupport.extractFailureDetail(from: lastCommandOutput)
             ?? "官方安装器执行失败，详情见日志。"
+        pendingOnboardingDefaults = nil
         if action == .enable {
             toggleIntent = false
         }
-        snapshot = FeishuChannelStatusSnapshot(
+        snapshot = snapshot.updating(
             stage: .diagnose,
-            pluginInstalled: snapshot.pluginInstalled,
+            onboardingState: .diagnosing,
             channelEnabled: false,
-            gatewayReachable: snapshot.gatewayReachable,
-            doctorHealthy: false,
-            openClawBinaryPath: snapshot.openClawBinaryPath,
-            npxBinaryPath: snapshot.npxBinaryPath,
-            openClawVersion: snapshot.openClawVersion,
-            pluginVersion: snapshot.pluginVersion,
+            doctorHealthy: .some(false),
             summary: "Feishu 安装或配置失败",
             detail: detail,
-            continueURL: Self.parseInstallProgress(from: lastCommandOutput).continueURL,
-            logSummary: detail
+            logSummary: .some(detail)
         )
     }
 
-    private nonisolated static func installCommand(credentials: FeishuAppCredentials?) -> String {
-        if let cliValue = credentials?.cliValue {
-            return "npx -y @larksuite/openclaw-lark install --use-existing --app '\(cliValue)'"
+    private func appendLogLine(_ text: String) {
+        if !lastCommandOutput.hasSuffix("\n"), !lastCommandOutput.isEmpty {
+            lastCommandOutput += "\n"
         }
-
-        return "npx -y @larksuite/openclaw-lark install"
-    }
-
-    private nonisolated static func installLogCommand(credentials: FeishuAppCredentials?) -> String {
-        if let appID = trimmedNonEmpty(credentials?.appID) {
-            return "npx -y @larksuite/openclaw-lark install --use-existing --app '\(appID):<redacted>'"
+        lastCommandOutput += text
+        if !lastCommandOutput.hasSuffix("\n") {
+            lastCommandOutput += "\n"
         }
-
-        return installCommand(credentials: nil)
-    }
-
-    private nonisolated static func doctorCommand(fix: Bool) -> String {
-        fix ? "npx -y @larksuite/openclaw-lark doctor --fix" : "npx -y @larksuite/openclaw-lark doctor"
     }
 
     private nonisolated static func makeStatusSnapshot(
         openClawBinaryPath: String?,
         npxBinaryPath: String?,
         environment: [String: String],
-        runCommand: CommandRunner
+        runCommand: CommandRunner,
+        currentSetupMode: FeishuSetupMode
     ) -> FeishuChannelStatusSnapshot {
         let displayOpenClawPath = openClawBinaryPath.map(OpenClawInstaller.displayBinaryPath(_:))
         let displayNpxPath = npxBinaryPath.map(OpenClawInstaller.displayBinaryPath(_:))
 
-        guard openClawBinaryPath != nil else {
-            return FeishuChannelStatusSnapshot(
+        guard let openClawBinaryPath else {
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .preflight,
-                pluginInstalled: false,
-                channelEnabled: false,
-                gatewayReachable: false,
-                doctorHealthy: nil,
-                openClawBinaryPath: nil,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: nil,
-                pluginVersion: nil,
+                onboardingState: .idle,
+                openClawBinaryPath: .some(nil),
+                npxBinaryPath: .some(displayNpxPath),
+                reusableConfiguredBotAvailable: false,
+                setupMode: resolvedSetupMode(
+                    preferred: currentSetupMode,
+                    reusableConfiguredBotAvailable: false
+                ),
                 summary: "未检测到 OpenClaw",
-                detail: "Feishu 官方插件依赖本机 OpenClaw。请先完成 OpenClaw 安装，再回来启用飞书 Channel。",
-                continueURL: nil,
-                logSummary: nil
+                detail: "Feishu 官方插件依赖本机 OpenClaw。请先完成 OpenClaw 安装，再回来启用飞书 Channel。"
             )
         }
 
         guard npxBinaryPath != nil else {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .preflight,
-                pluginInstalled: false,
-                channelEnabled: false,
-                gatewayReachable: false,
-                doctorHealthy: nil,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: nil,
-                openClawVersion: nil,
-                pluginVersion: nil,
+                onboardingState: .idle,
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(nil),
+                reusableConfiguredBotAvailable: false,
+                setupMode: resolvedSetupMode(
+                    preferred: currentSetupMode,
+                    reusableConfiguredBotAvailable: false
+                ),
                 summary: "未检测到 npx",
-                detail: "Feishu 官方插件通过 npx 分发。请先修复 Node.js / npx 环境。",
-                continueURL: nil,
-                logSummary: nil
+                detail: "Feishu 官方插件通过 npx 分发。请先修复 Node.js / npx 环境。"
             )
         }
+
+        let reusableConfiguredBotAvailable = hasReusableConfiguredBot(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand
+        )
 
         let infoResult = ChannelCommandSupport.runShellCommand(
             "npx -y @larksuite/openclaw-lark info",
@@ -700,66 +1221,62 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         )
         let pluginInfo = parsePluginInfo(from: infoResult.output)
         let openClawVersion = pluginInfo?.openClawVersion
+        let resolvedSetupMode = resolvedSetupMode(
+            preferred: currentSetupMode,
+            reusableConfiguredBotAvailable: reusableConfiguredBotAvailable
+        )
 
         if let versionString = openClawVersion,
            let parsedVersion = FeishuVersion(string: versionString),
            parsedVersion < minimumOpenClawVersion {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .preflight,
-                pluginInstalled: false,
-                channelEnabled: false,
-                gatewayReachable: false,
-                doctorHealthy: nil,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: versionString,
-                pluginVersion: pluginInfo?.pluginVersion,
+                onboardingState: .idle,
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(versionString),
+                pluginVersion: .some(pluginInfo?.pluginVersion),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
                 summary: "OpenClaw 版本过低",
-                detail: "Feishu 官方插件要求 OpenClaw 至少为 2026.2.26；当前检测到 \(versionString)。",
-                continueURL: nil,
-                logSummary: nil
+                detail: "Feishu 官方插件要求 OpenClaw 至少为 2026.2.26；当前检测到 \(versionString)。"
             )
         }
 
         guard let pluginInfo else {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .preflight,
-                pluginInstalled: false,
-                channelEnabled: false,
-                gatewayReachable: false,
-                doctorHealthy: nil,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: nil,
-                pluginVersion: nil,
+                onboardingState: .idle,
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
                 summary: "无法读取 Feishu 插件信息",
                 detail: ChannelCommandSupport.extractFailureDetail(from: infoResult.output)
                     ?? "官方 info 命令没有返回可识别结果。",
-                continueURL: nil,
-                logSummary: logSummary(from: infoResult.output)
+                logSummary: .some(logSummary(from: infoResult.output))
             )
         }
 
         if !pluginInfo.pluginInstalled {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .install,
+                onboardingState: .selectingMode,
                 pluginInstalled: false,
                 channelEnabled: false,
                 gatewayReachable: false,
-                doctorHealthy: nil,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: pluginInfo.openClawVersion,
-                pluginVersion: nil,
-                summary: "Feishu 官方插件未安装",
-                detail: "打开开关后，Clawbar 会直接调用官方 CLI 完成安装、配置和启用。",
-                continueURL: nil,
-                logSummary: logSummary(from: infoResult.output)
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(pluginInfo.openClawVersion),
+                pluginVersion: .some(nil),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
+                summary: reusableConfiguredBotAvailable
+                    ? "Feishu 插件未安装，可直接复用当前机器人或重新扫码"
+                    : "Feishu 插件未安装，请选择安装方式",
+                detail: "Clawbar 会按官方流程引导你复用当前机器人、手动输入凭证，或扫码创建新机器人。",
+                logSummary: .some(logSummary(from: infoResult.output))
             )
-        }
-
-        guard let openClawBinaryPath else {
-            return .idle
         }
 
         let channelEnabled = readBooleanConfig(
@@ -775,75 +1292,157 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         )
 
         if !channelEnabled {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .verify,
+                onboardingState: .idle,
                 pluginInstalled: true,
                 channelEnabled: false,
                 gatewayReachable: gatewayReachable,
-                doctorHealthy: nil,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: pluginInfo.openClawVersion,
-                pluginVersion: pluginInfo.pluginVersion,
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(pluginInfo.openClawVersion),
+                pluginVersion: .some(pluginInfo.pluginVersion),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
                 summary: "Feishu 插件已安装，Channel 未启用",
                 detail: "点击“重新启用”后，Clawbar 会写入 `channels.feishu.enabled=true` 并重启 Gateway。",
-                continueURL: nil,
-                logSummary: logSummary(from: infoResult.output)
+                logSummary: .some(logSummary(from: infoResult.output))
             )
         }
 
         let doctorStatus = queryDoctorStatus(environment: environment, runCommand: runCommand)
         if doctorStatus.healthy == false {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .diagnose,
+                onboardingState: .diagnosing,
                 pluginInstalled: true,
                 channelEnabled: true,
                 gatewayReachable: gatewayReachable,
-                doctorHealthy: false,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: pluginInfo.openClawVersion,
-                pluginVersion: pluginInfo.pluginVersion,
+                doctorHealthy: .some(false),
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(pluginInfo.openClawVersion),
+                pluginVersion: .some(pluginInfo.pluginVersion),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
                 summary: "Feishu 插件需要诊断修复",
                 detail: doctorStatus.detail,
-                continueURL: nil,
-                logSummary: doctorStatus.detail
+                logSummary: .some(doctorStatus.detail)
             )
         }
 
         if !gatewayReachable {
-            return FeishuChannelStatusSnapshot(
+            return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .verify,
+                onboardingState: .idle,
                 pluginInstalled: true,
                 channelEnabled: true,
                 gatewayReachable: false,
-                doctorHealthy: true,
-                openClawBinaryPath: displayOpenClawPath,
-                npxBinaryPath: displayNpxPath,
-                openClawVersion: pluginInfo.openClawVersion,
-                pluginVersion: pluginInfo.pluginVersion,
+                doctorHealthy: .some(true),
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(pluginInfo.openClawVersion),
+                pluginVersion: .some(pluginInfo.pluginVersion),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
                 summary: "Feishu 已启用，等待 Gateway 恢复",
-                detail: "当前 Gateway 未运行或未加载，建议先处理 Gateway 再重新验证。",
-                continueURL: nil,
-                logSummary: nil
+                detail: "当前 Gateway 未运行或未加载，建议先处理 Gateway 再重新验证。"
             )
         }
 
-        return FeishuChannelStatusSnapshot(
+        return FeishuChannelStatusSnapshot.idle.updating(
             stage: .ready,
+            onboardingState: .ready,
             pluginInstalled: true,
             channelEnabled: true,
             gatewayReachable: true,
-            doctorHealthy: true,
-            openClawBinaryPath: displayOpenClawPath,
-            npxBinaryPath: displayNpxPath,
-            openClawVersion: pluginInfo.openClawVersion,
-            pluginVersion: pluginInfo.pluginVersion,
+            doctorHealthy: .some(true),
+            openClawBinaryPath: .some(displayOpenClawPath),
+            npxBinaryPath: .some(displayNpxPath),
+            openClawVersion: .some(pluginInfo.openClawVersion),
+            pluginVersion: .some(pluginInfo.pluginVersion),
+            reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+            setupMode: resolvedSetupMode,
             summary: "Feishu 已启用并可用",
             detail: "官方插件已安装，Feishu Channel 已启用，Gateway 当前运行正常。",
-            continueURL: nil,
-            logSummary: logSummary(from: infoResult.output)
+            logSummary: .some(logSummary(from: infoResult.output))
         )
+    }
+
+    private nonisolated static func hasReusableConfiguredBot(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner
+    ) -> Bool {
+        let appID = readStringConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.appId"
+        )
+        let appSecret = readConfigValue(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.appSecret"
+        )
+        return trimmedNonEmpty(appID) != nil && appSecret != nil
+    }
+
+    private nonisolated static func installCommand(
+        mode: FeishuSetupMode,
+        credentials: FeishuAppCredentials?
+    ) -> String {
+        switch mode {
+        case .reuseConfiguredBot:
+            return "npx -y @larksuite/openclaw-lark install --use-existing"
+        case .useProvidedCredentials, .createOrConfigureNewBot:
+            if let cliValue = credentials?.cliValue {
+                return "npx -y @larksuite/openclaw-lark install --app '\(cliValue)'"
+            }
+            return "npx -y @larksuite/openclaw-lark install"
+        }
+    }
+
+    private nonisolated static func installLogCommand(
+        mode: FeishuSetupMode,
+        credentials: FeishuAppCredentials?
+    ) -> String {
+        switch mode {
+        case .reuseConfiguredBot:
+            return installCommand(mode: mode, credentials: nil)
+        case .useProvidedCredentials, .createOrConfigureNewBot:
+            if let appID = trimmedNonEmpty(credentials?.appID) {
+                return "npx -y @larksuite/openclaw-lark install --app '\(appID):<redacted>'"
+            }
+            return installCommand(mode: mode, credentials: nil)
+        }
+    }
+
+    private nonisolated static func installSummary(for mode: FeishuSetupMode) -> String {
+        switch mode {
+        case .reuseConfiguredBot:
+            return "正在复用当前已配置机器人安装 Feishu 插件"
+        case .useProvidedCredentials:
+            return "正在使用输入凭证安装 Feishu 插件"
+        case .createOrConfigureNewBot:
+            return "已完成扫码，正在安装 Feishu 插件"
+        }
+    }
+
+    private nonisolated static func installDetail(for mode: FeishuSetupMode) -> String {
+        switch mode {
+        case .reuseConfiguredBot:
+            return "Clawbar 会直接调用官方 CLI 复用当前 OpenClaw 中已有的 Feishu 机器人配置。"
+        case .useProvidedCredentials:
+            return "Clawbar 会调用官方 CLI 写入并校验你输入的 App ID / App Secret。"
+        case .createOrConfigureNewBot:
+            return "二维码只负责获取新机器人的凭证；后续仍由官方 CLI 负责真正安装和写入配置。"
+        }
+    }
+
+    private nonisolated static func doctorCommand(fix: Bool) -> String {
+        fix ? "npx -y @larksuite/openclaw-lark doctor --fix" : "npx -y @larksuite/openclaw-lark doctor"
     }
 
     private nonisolated static func parsePluginInfo(from output: String) -> FeishuPluginInfo? {
@@ -895,11 +1494,12 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             || output.contains("打开以下链接配置应用")
             || output.contains("等待用户授权")
             || output.contains("verification_url")
-            || output.contains("authorization URL") {
+            || output.contains("authorization URL")
+            || output.contains("Scan with Feishu to configure your bot") {
             return FeishuInstallProgress(
                 stage: .configure,
-                summary: "请继续在浏览器完成配置",
-                detail: "Clawbar 已拿到官方 CLI 给出的浏览器链接；打开链接继续完成应用配置或授权。",
+                summary: "官方安装器要求继续完成浏览器配置",
+                detail: "Clawbar 已从最近输出里发现一个继续配置的 URL，可作为扫码流程的兜底入口。",
                 continueURL: continueURL
             )
         }
@@ -965,6 +1565,65 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         runCommand: CommandRunner,
         path: String
     ) -> Bool? {
+        guard let value = readConfigValue(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: path
+        ) as? Bool else {
+            return nil
+        }
+        return value
+    }
+
+    private nonisolated static func readStringConfig(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        path: String
+    ) -> String? {
+        readConfigValue(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: path
+        ) as? String
+    }
+
+    private nonisolated static func readStringArrayConfig(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        path: String
+    ) -> [String] {
+        (readConfigValue(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: path
+        ) as? [Any])?.compactMap { $0 as? String } ?? []
+    }
+
+    private nonisolated static func readJSONObjectConfig(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        path: String
+    ) -> [String: Any]? {
+        readConfigValue(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: path
+        ) as? [String: Any]
+    }
+
+    private nonisolated static func readConfigValue(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        path: String
+    ) -> Any? {
         let result = runCommand(
             openClawBinaryPath,
             ["config", "get", path, "--json"],
@@ -972,16 +1631,97 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             8
         )
 
-        guard result.exitStatus == 0 else { return nil }
+        guard result.exitStatus == 0,
+              let data = result.output.data(using: .utf8) else {
+            return nil
+        }
 
-        let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "true" {
-            return true
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
+    private nonisolated static func writeJSONStringConfig(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        path: String,
+        value: String?,
+        log: @escaping @Sendable (String) async -> Void
+    ) throws {
+        guard let value else { return }
+        try writeJSONConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: path,
+            value: value,
+            log: log
+        )
+    }
+
+    private nonisolated static func writeJSONConfig(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        path: String,
+        value: Any,
+        log: @escaping @Sendable (String) async -> Void
+    ) throws {
+        let json = try jsonLiteral(value)
+        Task {
+            await log("$ openclaw config set \(path) \(json) --strict-json\n")
         }
-        if trimmed == "false" {
-            return false
+        let result = runCommand(
+            openClawBinaryPath,
+            ["config", "set", path, json, "--strict-json"],
+            environment,
+            12
+        )
+        Task {
+            await log(result.output)
         }
-        return nil
+        if result.timedOut || result.exitStatus != 0 {
+            throw NSError(
+                domain: "OpenClawFeishuChannelManager",
+                code: Int(result.exitStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: ChannelCommandSupport.extractFailureDetail(from: result.output)
+                        ?? "写入 \(path) 失败。",
+                ]
+            )
+        }
+    }
+
+    private nonisolated static func mergeUniqueString(_ value: String, into existing: [String]) -> [String] {
+        var merged = existing.filter { trimmedNonEmpty($0) != nil }
+        if !merged.contains(value) {
+            merged.append(value)
+        }
+        return merged
+    }
+
+    private nonisolated static func jsonLiteral(_ value: Any) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private nonisolated static func resolvedSetupMode(
+        preferred: FeishuSetupMode,
+        reusableConfiguredBotAvailable: Bool
+    ) -> FeishuSetupMode {
+        if reusableConfiguredBotAvailable {
+            switch preferred {
+            case .useProvidedCredentials:
+                return .useProvidedCredentials
+            case .reuseConfiguredBot, .createOrConfigureNewBot:
+                return .reuseConfiguredBot
+            }
+        }
+
+        if preferred == .reuseConfiguredBot {
+            return .createOrConfigureNewBot
+        }
+
+        return preferred
     }
 
     private nonisolated static func value(after prefix: String, in line: String) -> String? {

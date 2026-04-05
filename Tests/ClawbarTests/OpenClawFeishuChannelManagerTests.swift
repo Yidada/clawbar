@@ -1,15 +1,17 @@
+import Foundation
 import XCTest
 @testable import Clawbar
 
 @MainActor
 final class OpenClawFeishuChannelManagerTests: XCTestCase {
     func testRefreshStatusReturnsPreflightWhenOpenClawMissing() async {
+        let runner = RecordingCommandRunner([
+            MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [.result(.init(output: "", exitStatus: 1, timedOut: false))],
+            MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [.result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false))],
+        ])
         let manager = OpenClawFeishuChannelManager(
             environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "", exitStatus: 1, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-            ])
+            runCommand: runner.runner
         )
 
         manager.refreshStatus()
@@ -19,219 +21,251 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
         XCTAssertEqual(manager.snapshot.summary, "未检测到 OpenClaw")
     }
 
-    func testRefreshStatusReturnsPreflightWhenOpenClawVersionTooLow() async {
-        let manager = OpenClawFeishuChannelManager(
-            environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): .init(
-                    output: """
-                    feishu-plugin-onboard: 1.0.37
-                    openclaw: OpenClaw 2026.2.25 (legacy)
-                    openclaw-lark: Not Installed
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-            ])
+    func testRefreshStatusDetectsReusableConfiguredBot() async {
+        let manager = makeNotInstalledManager(
+            extraResponses: [
+                MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [.result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false))],
+                MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [.result(.init(output: "{\"source\":\"env\",\"id\":\"FEISHU_APP_SECRET\"}\n", exitStatus: 0, timedOut: false))],
+            ]
         )
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
 
-        XCTAssertEqual(manager.snapshot.stage, .preflight)
-        XCTAssertEqual(manager.snapshot.openClawVersion, "2026.2.25")
+        XCTAssertEqual(manager.snapshot.stage, .install)
+        XCTAssertTrue(manager.snapshot.reusableConfiguredBotAvailable)
+        XCTAssertEqual(manager.snapshot.setupMode, .reuseConfiguredBot)
     }
 
-    func testEnableStartsInstallFlowAndMovesToConfigureStage() async {
-        let manager = OpenClawFeishuChannelManager(
-            environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): .init(
-                    output: """
-                    feishu-plugin-onboard: 1.0.37
-                    openclaw: OpenClaw 2026.4.2 (d74a122)
-                    openclaw-lark: Not Installed
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-            ]),
-            makeStreamingProcess: { _, _, outputHandler, _ in
-                StubStreamingProcess {
-                    outputHandler("""
-                    打开以下链接配置应用:
-                    https://open.feishu.cn/page/cli?user_code=ABCD-EFGH
-                    等待配置应用...
-                    """)
-                }
-            }
+    func testReuseConfiguredBotStartsUseExistingInstallCommand() async {
+        let capture = StreamingCommandCapture()
+        let manager = makeNotInstalledManager(
+            extraResponses: [
+                MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [.result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false))],
+                MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [.result(.init(output: "\"secret\"\n", exitStatus: 0, timedOut: false))],
+            ],
+            makeStreamingProcess: capture.factory
         )
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
         manager.enable()
-        await waitUntilConfigureStage(for: manager)
 
-        XCTAssertEqual(manager.snapshot.stage, .configure)
-        XCTAssertEqual(manager.primaryActionTitle, "继续配置")
-        XCTAssertEqual(manager.snapshot.continueURL, "https://open.feishu.cn/page/cli?user_code=ABCD-EFGH")
+        XCTAssertEqual(capture.command, "npx -y @larksuite/openclaw-lark install --use-existing")
+        XCTAssertTrue(manager.lastCommandOutput.contains("--use-existing"))
     }
 
-    func testEnableRedactsExistingAppSecretInLoggedCommand() async {
-        let manager = OpenClawFeishuChannelManager(
-            environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): .init(
-                    output: """
-                    feishu-plugin-onboard: 1.0.37
-                    openclaw: OpenClaw 2026.4.2 (d74a122)
-                    openclaw-lark: Not Installed
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-            ]),
-            makeStreamingProcess: { _, _, _, _ in
-                StubStreamingProcess {}
-            }
-        )
+    func testProvidedCredentialsInstallUsesAppCommandAndRedactsSecret() async {
+        let capture = StreamingCommandCapture()
+        let manager = makeNotInstalledManager(makeStreamingProcess: capture.factory)
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
+        manager.selectSetupMode(.useProvidedCredentials)
         manager.enable(using: FeishuAppCredentials(appID: "cli_test", appSecret: "super-secret"))
 
+        XCTAssertEqual(capture.command, "npx -y @larksuite/openclaw-lark install --app 'cli_test:super-secret'")
         XCTAssertTrue(manager.lastCommandOutput.contains("cli_test:<redacted>"))
         XCTAssertFalse(manager.lastCommandOutput.contains("super-secret"))
     }
 
-    func testRefreshStatusReturnsReadyWhenPluginInstalledEnabledAndHealthy() async {
-        let manager = OpenClawFeishuChannelManager(
-            environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): .init(
-                    output: """
-                    feishu-plugin-onboard: 1.0.37
-                    openclaw: OpenClaw 2026.4.2 (d74a122)
-                    openclaw-lark: 2026.4.1
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-                MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): .init(output: "true\n", exitStatus: 0, timedOut: false),
-                MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "status", "--json", "--no-probe"]): .init(
-                    output: """
-                    {
-                      "service": {
-                        "loaded": true,
-                        "runtime": { "status": "running" }
-                      }
-                    }
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark doctor"]): .init(
-                    output: "Running diagnostic checks...\n[PASS] All checks passed\n",
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-            ])
+    func testQRCodeFlowPublishesQRPayload() async {
+        let registration = SequencedRegistrationTransport([
+            .json(#"{"supported_auth_methods":["client_secret"]}"#),
+            .json(#"{"device_code":"dev-1","verification_uri_complete":"https://open.feishu.cn/page/cli?user_code=ABCD-EFGH","expire_in":600,"interval":1}"#),
+            .json(#"{"error":"authorization_pending"}"#),
+        ])
+
+        let manager = makeNotInstalledManager(
+            registrationClient: registration.client,
+            sleep: fastSleep
         )
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
+        manager.enable()
+        await waitUntil(
+            timeoutNanoseconds: 1_000_000_000,
+            condition: { manager.snapshot.qrCodeURL != nil }
+        )
 
-        XCTAssertEqual(manager.snapshot.stage, .ready)
-        XCTAssertEqual(manager.snapshot.summary, "Feishu 已启用并可用")
-        XCTAssertEqual(manager.primaryActionTitle, "重新验证")
+        XCTAssertEqual(manager.snapshot.qrCodeURL, "https://open.feishu.cn/page/cli?user_code=ABCD-EFGH")
+        XCTAssertEqual(manager.snapshot.browserURL, "https://open.feishu.cn/page/cli?user_code=ABCD-EFGH")
+        XCTAssertTrue(manager.isOnboardingActive)
     }
 
-    func testRefreshStatusReturnsDiagnoseWhenDoctorFails() async {
+    func testQRCodeSuccessWritesDomainAndOwnerDefaultsBeforeEnable() async {
+        let runner = RecordingCommandRunner([
+            MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
+                .result(.init(output: notInstalledInfoOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
+                .result(.init(output: "\"cli_new\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.allowFrom", "--json"]): [
+                .result(.init(output: "[]\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groupPolicy", "--json"]): [
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groupAllowFrom", "--json"]): [
+                .result(.init(output: "[]\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groups", "--json"]): [
+                .result(.init(output: "{}\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.domain", "\"lark\"", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"ou_owner\"]", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"allowlist\"", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true}}", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): [
+                .result(.init(output: "true\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.enabled", "true", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "restart", "--json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "status", "--json", "--no-probe"]): [
+                .result(.init(output: runningGatewayStatus, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark doctor"]): [
+                .result(.init(output: "Running diagnostic checks...\n[PASS] All checks passed\n", exitStatus: 0, timedOut: false)),
+            ],
+        ])
+
+        let registration = SequencedRegistrationTransport([
+            .json(#"{"supported_auth_methods":["client_secret"]}"#),
+            .json(#"{"device_code":"dev-1","verification_uri_complete":"https://open.feishu.cn/page/cli?user_code=ABCD-EFGH","expire_in":600,"interval":0}"#),
+            .json(#"{"client_id":"cli_new","client_secret":"secret_new","user_info":{"open_id":"ou_owner","tenant_brand":"lark"}}"#),
+        ])
+        let streaming = StreamingCommandCapture(autoTerminateStatus: 0)
+
         let manager = OpenClawFeishuChannelManager(
             environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): .init(
-                    output: """
-                    feishu-plugin-onboard: 1.0.37
-                    openclaw: OpenClaw 2026.4.2 (d74a122)
-                    openclaw-lark: 2026.4.1
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-                MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): .init(output: "true\n", exitStatus: 0, timedOut: false),
-                MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "status", "--json", "--no-probe"]): .init(
-                    output: """
-                    {
-                      "service": {
-                        "loaded": true,
-                        "runtime": { "status": "running" }
-                      }
-                    }
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark doctor"]): .init(
-                    output: """
-                    Running diagnostic checks...
-                    [FAIL] Plugin directory missing at /Users/example/.openclaw/extensions/openclaw-lark
-                    Suggestion: Plugin is not installed. Use "feishu-plugin-onboard install" command to install it.
-                    """,
-                    exitStatus: 1,
-                    timedOut: false
-                ),
-            ])
+            runCommand: runner.runner,
+            makeStreamingProcess: streaming.factory,
+            registrationClient: registration.client,
+            sleep: fastSleep
         )
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
+        manager.enable()
+        await waitUntilIdle(for: manager, timeoutNanoseconds: 2_000_000_000)
 
-        XCTAssertEqual(manager.snapshot.stage, .diagnose)
-        XCTAssertEqual(manager.primaryActionTitle, "运行修复")
+        let commands = runner.recordedCommands()
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.domain", "\"lark\"", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"ou_owner\"]", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true}}", "--strict-json"])))
+        XCTAssertEqual(streaming.command, "npx -y @larksuite/openclaw-lark install --app 'cli_new:secret_new'")
+        XCTAssertEqual(manager.snapshot.stage, .ready)
+    }
+
+    func testCancelQRCodeFlowClearsBusyState() async {
+        let registration = SequencedRegistrationTransport([
+            .json(#"{"supported_auth_methods":["client_secret"]}"#),
+            .json(#"{"device_code":"dev-1","verification_uri_complete":"https://open.feishu.cn/page/cli?user_code=ABCD-EFGH","expire_in":600,"interval":1}"#),
+            .json(#"{"error":"authorization_pending"}"#),
+            .json(#"{"error":"authorization_pending"}"#),
+        ])
+
+        let manager = makeNotInstalledManager(
+            registrationClient: registration.client,
+            sleep: { _ in try await Task.sleep(nanoseconds: 50_000_000) }
+        )
+
+        manager.refreshStatus()
+        await waitUntilIdle(for: manager)
+        manager.enable()
+        await waitUntil(
+            timeoutNanoseconds: 1_000_000_000,
+            condition: { manager.snapshot.qrCodeURL != nil }
+        )
+
+        manager.cancelActiveSetupFlow()
+        await waitUntil(
+            timeoutNanoseconds: 1_000_000_000,
+            condition: { !manager.isBusy }
+        )
+
+        XCTAssertFalse(manager.isBusy)
+        XCTAssertTrue(manager.snapshot.summary.contains("已取消"))
     }
 
     func testDisableWritesConfigWithoutUninstallingPlugin() async {
-        let runner = SequencedCommandRunner([
+        let runner = RecordingCommandRunner([
             MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
-                .immediate(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [
-                .immediate(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
-                .immediate(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
+                .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): [
-                .immediate(.init(output: "true\n", exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: "false\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "true\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "false\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "status", "--json", "--no-probe"]): [
-                .immediate(.init(output: runningGatewayStatus, exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: runningGatewayStatus, exitStatus: 0, timedOut: false)),
+                .result(.init(output: runningGatewayStatus, exitStatus: 0, timedOut: false)),
+                .result(.init(output: runningGatewayStatus, exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark doctor"]): [
-                .immediate(.init(output: "Running diagnostic checks...\n[PASS] All checks passed\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "Running diagnostic checks...\n[PASS] All checks passed\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.enabled", "false", "--strict-json"]): [
-                .immediate(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "restart", "--json"]): [
-                .immediate(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
         ])
 
@@ -249,112 +283,86 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.snapshot.channelEnabled)
         XCTAssertEqual(manager.snapshot.stage, .verify)
-        XCTAssertTrue(manager.lastCommandOutput.contains("openclaw config set channels.feishu.enabled false --strict-json"))
         XCTAssertFalse(manager.lastCommandOutput.contains("uninstall"))
     }
 
-    func testEnableFailureDoesNotRestartGatewayOrKeepToggleEnabled() async {
-        let runner = SequencedCommandRunner([
+    private func makeNotInstalledManager(
+        extraResponses: [MockCommand: [RecordedResult]] = [:],
+        makeStreamingProcess: @escaping OpenClawFeishuChannelManager.StreamingProcessFactory = { _, _, _, _ in
+            StubStreamingProcess {}
+        },
+        registrationClient: FeishuRegistrationClient = SequencedRegistrationTransport([]).client,
+        sleep: @escaping OpenClawFeishuChannelManager.SleepHandler = fastSleep
+    ) -> OpenClawFeishuChannelManager {
+        var baseResponses: [MockCommand: [RecordedResult]] = [
             MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
-                .immediate(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
-                .immediate(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [
-                .immediate(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
-                .immediate(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: notInstalledInfoOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: notInstalledInfoOutput, exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): [
-                .immediate(.init(output: "false\n", exitStatus: 0, timedOut: false)),
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "status", "--json", "--no-probe"]): [
-                .immediate(.init(output: runningGatewayStatus, exitStatus: 0, timedOut: false)),
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
+                .result(.init(output: "", exitStatus: 1, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.enabled", "true", "--strict-json"]): [
-                .immediate(.init(output: "{ \"error\": \"write failed\" }\n", exitStatus: 1, timedOut: false)),
-            ],
-        ])
+        ]
 
-        let manager = OpenClawFeishuChannelManager(
+        for (command, results) in extraResponses {
+            baseResponses[command] = results
+        }
+
+        let runner = RecordingCommandRunner(baseResponses)
+
+        return OpenClawFeishuChannelManager(
             environmentProvider: { [:] },
-            runCommand: runner.runner
+            runCommand: runner.runner,
+            makeStreamingProcess: makeStreamingProcess,
+            registrationClient: registrationClient,
+            sleep: sleep
         )
-
-        manager.refreshStatus()
-        await waitUntilIdle(for: manager)
-        XCTAssertEqual(manager.snapshot.stage, .verify)
-        XCTAssertFalse(manager.snapshot.channelEnabled)
-
-        manager.enable()
-        await waitUntilIdle(for: manager)
-
-        XCTAssertEqual(manager.snapshot.stage, .diagnose)
-        XCTAssertFalse(manager.isEnabled)
-        XCTAssertFalse(manager.lastCommandOutput.contains("$ openclaw gateway restart --json"))
-    }
-
-    func testFailedInstallClearsOptimisticToggleIntent() async {
-        let manager = OpenClawFeishuChannelManager(
-            environmentProvider: { [:] },
-            runCommand: makeCommandRunner([
-                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/zsh", ["-lc", "command -v npx"]): .init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false),
-                MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): .init(
-                    output: """
-                    feishu-plugin-onboard: 1.0.37
-                    openclaw: OpenClaw 2026.4.2 (d74a122)
-                    openclaw-lark: Not Installed
-                    """,
-                    exitStatus: 0,
-                    timedOut: false
-                ),
-            ]),
-            makeStreamingProcess: { _, _, outputHandler, terminationHandler in
-                StubStreamingProcess {
-                    outputHandler("installation failed\n")
-                    terminationHandler(1)
-                }
-            }
-        )
-
-        manager.refreshStatus()
-        await waitUntilIdle(for: manager)
-        manager.enable()
-        await waitUntilIdle(for: manager)
-
-        XCTAssertFalse(manager.isEnabled)
-        XCTAssertEqual(manager.snapshot.stage, .diagnose)
     }
 
     private func waitUntilIdle(
         for manager: OpenClawFeishuChannelManager,
         timeoutNanoseconds: UInt64 = 1_000_000_000
     ) async {
-        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-        while manager.isRefreshing || manager.activeAction != nil {
-            if DispatchTime.now().uptimeNanoseconds >= deadline {
-                XCTFail("Timed out waiting for Feishu manager to become idle")
-                return
-            }
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        await waitUntil(timeoutNanoseconds: timeoutNanoseconds) {
+            !manager.isRefreshing && !manager.isBusy
         }
     }
 
-    private func waitUntilConfigureStage(
-        for manager: OpenClawFeishuChannelManager,
-        timeoutNanoseconds: UInt64 = 1_000_000_000
+    private func waitUntil(
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        condition: @escaping @MainActor () -> Bool
     ) async {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-        while manager.snapshot.stage != .configure {
+        while !condition() {
             if DispatchTime.now().uptimeNanoseconds >= deadline {
-                XCTFail("Timed out waiting for Feishu manager to enter configure stage")
+                XCTFail("Timed out waiting for condition")
                 return
             }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
     }
 }
+
+private let notInstalledInfoOutput = """
+feishu-plugin-onboard: 1.0.37
+openclaw: OpenClaw 2026.4.2 (d74a122)
+openclaw-lark: Not Installed
+"""
 
 private let installedInfoOutput = """
 feishu-plugin-onboard: 1.0.37
@@ -371,6 +379,8 @@ private let runningGatewayStatus = """
 }
 """
 
+private let fastSleep: OpenClawFeishuChannelManager.SleepHandler = { _ in }
+
 private struct MockCommand: Hashable {
     let executablePath: String
     let arguments: [String]
@@ -381,39 +391,39 @@ private struct MockCommand: Hashable {
     }
 }
 
-private final class SequencedCommandRunner: @unchecked Sendable {
-    enum Step {
-        case immediate(OpenClawChannelCommandResult)
-        case delayed(OpenClawChannelCommandResult, nanoseconds: UInt64)
-    }
+private enum RecordedResult {
+    case result(OpenClawChannelCommandResult)
+}
 
+private final class RecordingCommandRunner: @unchecked Sendable {
     private let lock = NSLock()
-    private var stepsByCommand: [MockCommand: [Step]]
+    private var stepsByCommand: [MockCommand: [RecordedResult]]
+    private var recorded: [MockCommand] = []
 
-    init(_ stepsByCommand: [MockCommand: [Step]]) {
+    init(_ stepsByCommand: [MockCommand: [RecordedResult]]) {
         self.stepsByCommand = stepsByCommand
     }
 
     var runner: OpenClawFeishuChannelManager.CommandRunner {
         { [self] executablePath, arguments, _, _ in
             let command = MockCommand(executablePath, arguments)
-            let step: Step = lock.withLock {
+            return lock.withLock {
+                recorded.append(command)
                 guard var steps = stepsByCommand[command], !steps.isEmpty else {
-                    return .immediate(.init(output: "", exitStatus: 1, timedOut: false))
+                    return .init(output: "", exitStatus: 1, timedOut: false)
                 }
                 let next = steps.removeFirst()
                 stepsByCommand[command] = steps
-                return next
-            }
-
-            switch step {
-            case .immediate(let result):
-                return result
-            case .delayed(let result, let nanoseconds):
-                Thread.sleep(forTimeInterval: TimeInterval(nanoseconds) / 1_000_000_000)
-                return result
+                switch next {
+                case .result(let result):
+                    return result
+                }
             }
         }
+    }
+
+    func recordedCommands() -> [MockCommand] {
+        lock.withLock { recorded }
     }
 }
 
@@ -430,13 +440,64 @@ private final class StubStreamingProcess: Process, @unchecked Sendable {
     }
 }
 
-private extension OpenClawFeishuChannelManagerTests {
-    func makeCommandRunner(
-        _ responses: [MockCommand: OpenClawChannelCommandResult]
-    ) -> OpenClawFeishuChannelManager.CommandRunner {
-        { executablePath, arguments, _, _ in
-            responses[MockCommand(executablePath, arguments)]
-                ?? .init(output: "", exitStatus: 1, timedOut: false)
+private final class StreamingCommandCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var command: String?
+    private let autoTerminateStatus: Int32?
+
+    init(autoTerminateStatus: Int32? = nil) {
+        self.autoTerminateStatus = autoTerminateStatus
+    }
+
+    var factory: OpenClawFeishuChannelManager.StreamingProcessFactory {
+        { [self] command, _, _, terminationHandler in
+            lock.withLock {
+                self.command = command
+            }
+            return StubStreamingProcess {
+                if let autoTerminateStatus = self.autoTerminateStatus {
+                    terminationHandler(autoTerminateStatus)
+                }
+            }
+        }
+    }
+}
+
+private final class SequencedRegistrationTransport: @unchecked Sendable {
+    private let lock = NSLock()
+    private var payloads: [String]
+
+    init(_ payloads: [RegistrationPayload]) {
+        self.payloads = payloads.map(\.rawValue)
+    }
+
+    var client: FeishuRegistrationClient {
+        FeishuRegistrationClient { request in
+            let payload = self.lock.withLock { () -> String in
+                if self.payloads.isEmpty {
+                    return #"{"error":"authorization_pending"}"#
+                }
+                return self.payloads.removeFirst()
+            }
+            let data = Data(payload.utf8)
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "https://accounts.feishu.cn")!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (data, response)
+        }
+    }
+}
+
+private enum RegistrationPayload {
+    case json(String)
+
+    var rawValue: String {
+        switch self {
+        case .json(let value):
+            return value
         }
     }
 }

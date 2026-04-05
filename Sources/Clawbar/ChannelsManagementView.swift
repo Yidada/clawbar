@@ -53,7 +53,6 @@ struct ChannelsManagementView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openURL) private var openURL
 
-    @State private var useExistingFeishuApp = false
     @State private var feishuAppID = ""
     @State private var feishuAppSecret = ""
 
@@ -107,9 +106,16 @@ struct ChannelsManagementView: View {
         )
     }
 
+    private var feishuSetupModeBinding: Binding<FeishuSetupMode> {
+        Binding(
+            get: { feishuManager.snapshot.setupMode },
+            set: { feishuManager.selectSetupMode($0) }
+        )
+    }
+
     private var feishuCredentialsOrNil: FeishuAppCredentials? {
         let credentials = FeishuAppCredentials(appID: feishuAppID, appSecret: feishuAppSecret)
-        return useExistingFeishuApp && credentials.isComplete ? credentials : nil
+        return feishuManager.snapshot.setupMode == .useProvidedCredentials && credentials.isComplete ? credentials : nil
     }
 
     var body: some View {
@@ -237,10 +243,10 @@ struct ChannelsManagementView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.secondaryText)
 
-                    Text(feishuManager.snapshot.summary)
+                    Text(feishuStatusHeadline)
                         .font(.title3.weight(.semibold))
 
-                    Text(feishuManager.snapshot.detail)
+                    Text(feishuStatusDetail)
                         .font(.subheadline)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -248,67 +254,124 @@ struct ChannelsManagementView: View {
                 .padding(14)
                 .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                if let continueURL = feishuManager.snapshot.continueURL,
-                   let url = URL(string: continueURL) {
+                if !feishuManager.snapshot.pluginInstalled {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("浏览器继续操作")
+                        Text("安装方式")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(theme.secondaryText)
 
-                        Link("打开官方配置链接", destination: url)
-                            .font(.subheadline.weight(.semibold))
+                        Picker("安装方式", selection: feishuSetupModeBinding) {
+                            ForEach(feishuSetupModeOptions) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(feishuManager.isBusy)
+
+                        Text(feishuManager.snapshot.setupMode.detail)
+                            .font(.caption)
+                            .foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if !feishuManager.snapshot.reusableConfiguredBotAvailable {
+                            Text("当前没有检测到可复用的 OpenClaw Feishu 机器人配置。")
+                                .font(.caption)
+                                .foregroundStyle(theme.secondaryText)
+                        }
                     }
                     .padding(14)
                     .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
 
-                if feishuManager.snapshot.stage == .install || (!feishuManager.snapshot.pluginInstalled && useExistingFeishuApp) {
+                if feishuManager.snapshot.setupMode == .useProvidedCredentials,
+                   !feishuManager.snapshot.pluginInstalled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("App ID，例如 cli_xxx", text: $feishuAppID)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(theme.inputBorder, lineWidth: 1)
+                            )
+
+                        SecureField("App Secret", text: $feishuAppSecret)
+                            .textFieldStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(theme.inputBorder, lineWidth: 1)
+                            )
+                    }
+                }
+
+                if let qrCodeURL = feishuManager.snapshot.qrCodeURL,
+                   let qrURL = URL(string: qrCodeURL),
+                   !feishuManager.snapshot.pluginInstalled {
                     VStack(alignment: .leading, spacing: 10) {
-                        Button(useExistingFeishuApp ? "改为自动创建应用" : "使用已有飞书应用") {
-                            useExistingFeishuApp.toggle()
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
+                        Text("飞书扫码")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.secondaryText)
 
-                        if useExistingFeishuApp {
+                        HStack(alignment: .center, spacing: 16) {
+                            QRCodeImageView(payload: qrCodeURL)
+                                .frame(width: 168, height: 168)
+                                .padding(10)
+                                .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(theme.inputBorder, lineWidth: 1)
+                                )
+
                             VStack(alignment: .leading, spacing: 8) {
-                                TextField("App ID，例如 cli_xxx", text: $feishuAppID)
-                                    .textFieldStyle(.plain)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(theme.inputBorder, lineWidth: 1)
-                                    )
+                                Text("请直接用飞书扫一扫。")
+                                    .font(.subheadline.weight(.medium))
 
-                                SecureField("App Secret", text: $feishuAppSecret)
-                                    .textFieldStyle(.plain)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(theme.inputBorder, lineWidth: 1)
-                                    )
+                                Text("扫码后无需再看 Terminal；Clawbar 会自动轮询并继续安装。")
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondaryText)
+
+                                Link("在浏览器打开二维码链接", destination: qrURL)
+                                    .font(.caption.weight(.semibold))
                             }
+
+                            Spacer(minLength: 0)
                         }
                     }
                 }
 
                 HStack(spacing: 10) {
-                    Button(feishuManager.primaryActionTitle) {
-                        if feishuManager.snapshot.stage == .configure,
-                           let continueURL = feishuManager.snapshot.continueURL,
-                           let url = URL(string: continueURL) {
-                            openURL(url)
-                        } else {
-                            feishuManager.runPrimaryAction(existingAppCredentials: feishuCredentialsOrNil)
+                    if feishuManager.isOnboardingActive {
+                        Button("取消流程") {
+                            feishuManager.cancelActiveSetupFlow()
                         }
+                        .buttonStyle(.bordered)
+
+                        if let browserURL = feishuManager.snapshot.browserURL,
+                           let url = URL(string: browserURL) {
+                            Button("在浏览器打开") {
+                                openURL(url)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(ChannelKind.feishu.accentColor)
+                        }
+                    } else {
+                        Button(feishuManager.primaryActionTitle) {
+                            if feishuManager.snapshot.stage == .configure,
+                               let browserURL = feishuManager.snapshot.browserURL,
+                               let url = URL(string: browserURL) {
+                                openURL(url)
+                            } else {
+                                feishuManager.runPrimaryAction(existingAppCredentials: feishuCredentialsOrNil)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(ChannelKind.feishu.accentColor)
+                        .disabled(feishuPrimaryActionDisabled)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(ChannelKind.feishu.accentColor)
-                    .disabled(feishuPrimaryActionDisabled)
 
                     Button("刷新状态") {
                         feishuManager.refreshStatus()
@@ -358,10 +421,15 @@ struct ChannelsManagementView: View {
             return true
         }
 
-        if useExistingFeishuApp,
-           feishuManager.primaryAction == .enable,
-           feishuCredentialsOrNil == nil {
-            return true
+        if feishuManager.primaryAction == .enable {
+            switch feishuManager.snapshot.setupMode {
+            case .reuseConfiguredBot:
+                return !feishuManager.snapshot.reusableConfiguredBotAvailable
+            case .useProvidedCredentials:
+                return feishuCredentialsOrNil == nil
+            case .createOrConfigureNewBot:
+                return false
+            }
         }
 
         return false
@@ -587,6 +655,21 @@ struct ChannelsManagementView: View {
 
     private var shouldShowInstallButton: Bool {
         wechatEnabled && wechatManager.shouldOfferInstall
+    }
+
+    private var feishuSetupModeOptions: [FeishuSetupMode] {
+        if feishuManager.snapshot.reusableConfiguredBotAvailable {
+            return FeishuSetupMode.allCases
+        }
+        return FeishuSetupMode.allCases.filter { $0 != .reuseConfiguredBot }
+    }
+
+    private var feishuStatusHeadline: String {
+        feishuManager.snapshot.summary
+    }
+
+    private var feishuStatusDetail: String {
+        feishuManager.snapshot.detail
     }
 
     private func overviewMetric(title: String, value: String) -> some View {

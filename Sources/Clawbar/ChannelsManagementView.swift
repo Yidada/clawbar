@@ -78,10 +78,10 @@ struct ChannelsManagementView: View {
                     return
                 }
 
-                if wechatManager.pluginInstalled {
-                    wechatManager.refreshWeChatStatus()
-                } else {
+                if wechatManager.shouldOfferInstall {
                     wechatManager.installWeChatCapability()
+                } else {
+                    wechatManager.refreshWeChatStatus()
                 }
             }
         )
@@ -283,11 +283,23 @@ struct ChannelsManagementView: View {
                 }
 
                 HStack(spacing: 10) {
-                    if wechatManager.isBusy {
+                    if wechatManager.isFlowActive {
                         Button("取消流程") {
                             wechatManager.cancelActiveWeChatFlow()
                         }
                         .buttonStyle(.bordered)
+                    } else if shouldShowInstallButton {
+                        Button("开始安装") {
+                            wechatManager.installWeChatCapability()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(ChannelKind.wechat.accentColor)
+
+                        Button("刷新状态") {
+                            wechatManager.refreshWeChatStatus()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(wechatManager.isRefreshing)
                     } else if shouldShowBindButton {
                         Button("扫码连接") {
                             wechatManager.startWeChatBinding()
@@ -341,9 +353,6 @@ struct ChannelsManagementView: View {
             }
             return "正在安装微信插件"
         }
-        if wechatManager.pendingInstallCompletion {
-            return "等待安装和扫码完成"
-        }
         if wechatManager.isLaunchingBinding {
             if wechatManager.runtimeSnapshot.connected {
                 return "微信连接成功"
@@ -356,13 +365,7 @@ struct ChannelsManagementView: View {
             }
             return "正在准备扫码"
         }
-        if wechatManager.pendingBindingCompletion {
-            return "等待扫码连接"
-        }
-        if wechatManager.isRefreshing {
-            return "正在检查状态"
-        }
-        return wechatManager.statusLabel
+        return wechatManager.steadyStatusHeadline
     }
 
     private var wechatStatusDetail: String {
@@ -387,9 +390,6 @@ struct ChannelsManagementView: View {
             }
             return "Clawbar 正在后台执行官方安装器。"
         }
-        if wechatManager.pendingInstallCompletion {
-            return "后台流程仍在继续；如状态没有变化，可刷新确认。"
-        }
         if wechatManager.isLaunchingBinding {
             if wechatManager.runtimeSnapshot.connected {
                 return "已经识别到微信连接成功。"
@@ -402,40 +402,25 @@ struct ChannelsManagementView: View {
             }
             return "Clawbar 正在后台发起扫码登录。"
         }
-        if wechatManager.pendingBindingCompletion {
-            return "后台流程仍在继续；如状态没有变化，可刷新确认。"
-        }
-        if wechatManager.isRefreshing {
-            return "正在读取当前 OpenClaw 和微信插件状态。"
-        }
-        if wechatManager.openClawBinaryPath == nil {
-            return "当前没有检测到 OpenClaw，暂时无法安装微信能力。"
-        }
-        if wechatManager.pluginInstalled == false {
-            return wechatEnabled ? "开关已打开。点击刷新状态查看官方安装器是否已经完成。" : "打开开关后会启动官方安装器。"
-        }
-        if wechatManager.bindingDetected == false {
-            return "插件已安装，但还没检测到微信连接。需要时可以手动重新扫码。"
-        }
-        return "微信能力已经可用。"
+        return wechatManager.steadyStatusDetail
     }
 
     private var wechatStatusTone: Color? {
-        if wechatManager.openClawBinaryPath == nil {
+        if wechatManager.usesWarningTone {
             return .orange
         }
-        if wechatManager.pluginInstalled && wechatManager.bindingDetected {
+        if wechatManager.usesSuccessTone {
             return ChannelKind.wechat.accentColor
         }
         return nil
     }
 
     private var shouldShowBindButton: Bool {
-        wechatEnabled &&
-        wechatManager.openClawBinaryPath != nil &&
-        wechatManager.pluginInstalled &&
-        !wechatManager.bindingDetected &&
-        !wechatManager.pendingBindingCompletion
+        wechatEnabled && wechatManager.shouldOfferBind
+    }
+
+    private var shouldShowInstallButton: Bool {
+        wechatEnabled && wechatManager.shouldOfferInstall
     }
 
     private func overviewMetric(title: String, value: String) -> some View {

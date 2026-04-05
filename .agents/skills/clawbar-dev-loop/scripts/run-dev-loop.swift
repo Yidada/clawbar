@@ -17,6 +17,7 @@ struct DevLoop {
     private var shouldExit = false
     private var signalSources: [DispatchSourceSignal] = []
     private var lastFingerprint = ""
+    private var hasSuccessfulBuild = false
 
     init(rootDirectory: URL, pollInterval: TimeInterval) {
         self.rootDirectory = rootDirectory
@@ -50,12 +51,17 @@ struct DevLoop {
                 print("[\(timestamp())] change detected, building...")
 
                 if try buildApp() {
+                    hasSuccessfulBuild = true
                     try restartApp()
                 } else {
                     print("[\(timestamp())] build failed, waiting for next change")
                 }
 
                 lastFingerprint = fingerprint
+            } else if hasSuccessfulBuild && !isAppRunning() {
+                print("[\(timestamp())] app missing, relaunching...")
+                try launchApp()
+                print("[\(timestamp())] app restarted")
             }
 
             Thread.sleep(forTimeInterval: pollInterval)
@@ -202,6 +208,22 @@ struct DevLoop {
             return
         }
         stopApp()
+    }
+
+    private func isAppRunning() -> Bool {
+        if let process = appProcess, process.isRunning {
+            return true
+        }
+
+        if let pid = trackedPID(), pid > 0, kill(pid, 0) == 0 {
+            return true
+        }
+
+        guard let binaryURL = try? resolvedExecutableURL() else {
+            return false
+        }
+
+        return !matchingProcessIDs(for: binaryURL.path).isEmpty
     }
 
     private func trackedPID() -> pid_t? {

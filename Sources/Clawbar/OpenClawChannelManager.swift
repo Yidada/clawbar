@@ -32,6 +32,70 @@ struct WeChatRuntimeSnapshot: Equatable, Sendable {
     var qrExpired = false
 }
 
+struct OpenClawWeixinStatusPayload: Equatable, Sendable {
+    struct GatewaySnapshot: Equatable, Sendable {
+        let reachable: Bool?
+        let error: String?
+        let url: String?
+    }
+
+    struct GatewayServiceSnapshot: Equatable, Sendable {
+        let installed: Bool?
+        let loaded: Bool?
+        let runtimeShort: String?
+    }
+
+    let runtimeVersion: String?
+    let channelSummary: [String]
+    let gateway: GatewaySnapshot
+    let gatewayService: GatewayServiceSnapshot
+}
+
+enum OpenClawWeixinDerivedState: Equatable, Sendable {
+    case pluginMissing
+    case pluginPresentButNotConfigured
+    case pluginConfiguredGatewayReachable(accountLabel: String?)
+    case pluginConfiguredGatewayUnreachable(accountLabel: String?, gatewayDetail: String?)
+}
+
+enum OpenClawWeixinCardState: Equatable, Sendable {
+    case missingCLI
+    case refreshing(lastKnown: OpenClawWeixinDerivedState?)
+    case statusCommandFailed(detail: String)
+    case jsonParseFailed(detail: String)
+    case pluginMissing
+    case pluginPresentButNotConfigured
+    case pluginConfiguredGatewayReachable(accountLabel: String?)
+    case pluginConfiguredGatewayUnreachable(accountLabel: String?, gatewayDetail: String?)
+
+    var stableDerivedState: OpenClawWeixinDerivedState? {
+        switch self {
+        case .refreshing(let lastKnown):
+            return lastKnown
+        case .pluginMissing:
+            return .pluginMissing
+        case .pluginPresentButNotConfigured:
+            return .pluginPresentButNotConfigured
+        case .pluginConfiguredGatewayReachable(let accountLabel):
+            return .pluginConfiguredGatewayReachable(accountLabel: accountLabel)
+        case .pluginConfiguredGatewayUnreachable(let accountLabel, let gatewayDetail):
+            return .pluginConfiguredGatewayUnreachable(
+                accountLabel: accountLabel,
+                gatewayDetail: gatewayDetail
+            )
+        case .missingCLI, .statusCommandFailed, .jsonParseFailed:
+            return nil
+        }
+    }
+}
+
+private enum OpenClawWeixinRefreshOutcome: Equatable, Sendable {
+    case missingCLI
+    case statusCommandFailed(detail: String)
+    case jsonParseFailed(detail: String)
+    case success(payload: OpenClawWeixinStatusPayload, derivedState: OpenClawWeixinDerivedState)
+}
+
 @MainActor
 final class OpenClawChannelManager: ObservableObject {
     static let shared = OpenClawChannelManager()
@@ -46,18 +110,15 @@ final class OpenClawChannelManager: ObservableObject {
 
     nonisolated static let wechatChannelID = "openclaw-weixin"
     nonisolated static let wechatPluginSpec = "@tencent-weixin/openclaw-weixin-cli@latest"
-    nonisolated static let installArguments = ["-y", wechatPluginSpec, "install"]
-    nonisolated static let bindArguments = ["channels", "login", "--channel", wechatChannelID]
+    nonisolated static let statusArguments = ["status", "--json"]
 
     @Published private(set) var isRefreshing = false
     @Published private(set) var isInstalling = false
     @Published private(set) var isLaunchingBinding = false
     @Published private(set) var openClawBinaryPath: String?
     @Published private(set) var npxBinaryPath: String?
-    @Published private(set) var pluginInstalled = false
-    @Published private(set) var bindingDetected = false
-    @Published private(set) var pendingInstallCompletion = false
-    @Published private(set) var pendingBindingCompletion = false
+    @Published private(set) var statusPayload: OpenClawWeixinStatusPayload?
+    @Published private(set) var cardState: OpenClawWeixinCardState = .refreshing(lastKnown: nil)
     @Published private(set) var lastActionSummary = "等待绑定"
     @Published private(set) var lastActionDetail = "Clawbar 会内置微信能力安装和绑定流程，用户只需要点击绑定并扫码。"
     @Published private(set) var lastCommandOutput = ""
@@ -79,14 +140,144 @@ final class OpenClawChannelManager: ObservableObject {
     }
 
     var statusLabel: String {
-        guard openClawBinaryPath != nil else { return "未检测到 OpenClaw" }
-        if pluginInstalled == false { return "待安装微信能力" }
-        if bindingDetected == false { return "待绑定扫码" }
-        return "已连接微信"
+        switch cardState {
+        case .refreshing(let lastKnown):
+            if let lastKnown {
+                return Self.statusLabel(for: lastKnown)
+            }
+            return "正在检查状态"
+        case .missingCLI:
+            return "未检测到 OpenClaw"
+        case .statusCommandFailed:
+            return "状态检查失败"
+        case .jsonParseFailed:
+            return "状态输出不可解析"
+        case .pluginMissing:
+            return "待安装微信能力"
+        case .pluginPresentButNotConfigured:
+            return "待绑定扫码"
+        case .pluginConfiguredGatewayReachable:
+            return "微信可用"
+        case .pluginConfiguredGatewayUnreachable:
+            return "微信已配置"
+        }
+    }
+
+    var steadyStatusHeadline: String {
+        switch cardState {
+        case .refreshing:
+            return "正在检查状态"
+        case .missingCLI:
+            return "未检测到 OpenClaw"
+        case .statusCommandFailed:
+            return "状态检查失败"
+        case .jsonParseFailed:
+            return "状态输出不可解析"
+        case .pluginMissing:
+            return "待安装微信能力"
+        case .pluginPresentButNotConfigured:
+            return "待绑定扫码"
+        case .pluginConfiguredGatewayReachable:
+            return "微信已可用"
+        case .pluginConfiguredGatewayUnreachable:
+            return "Gateway 当前不可达"
+        }
+    }
+
+    var steadyStatusDetail: String {
+        switch cardState {
+        case .refreshing:
+            return "正在读取 openclaw status --json。"
+        case .missingCLI:
+            return "请先安装 OpenClaw，再继续微信能力安装和绑定。"
+        case .statusCommandFailed(let detail):
+            return detail
+        case .jsonParseFailed(let detail):
+            return detail
+        case .pluginMissing:
+            return "当前 status 结果里没有发现 openclaw-weixin；可以直接开始安装微信能力。"
+        case .pluginPresentButNotConfigured:
+            return "当前 status 结果显示微信能力已存在，但还没有完成扫码绑定。"
+        case .pluginConfiguredGatewayReachable(let accountLabel):
+            if let accountLabel = accountLabel?.trimmedNonEmpty {
+                return "已检测到 \(accountLabel)，并且 Gateway 当前可达。"
+            }
+            return "微信能力已配置，并且 Gateway 当前可达。"
+        case .pluginConfiguredGatewayUnreachable(let accountLabel, let gatewayDetail):
+            var segments: [String] = []
+            if let accountLabel = accountLabel?.trimmedNonEmpty {
+                segments.append("已检测到 \(accountLabel)。")
+            } else {
+                segments.append("微信能力已配置。")
+            }
+
+            if let gatewayDetail = gatewayDetail?.trimmedNonEmpty {
+                segments.append("Gateway 状态：\(gatewayDetail)")
+            } else {
+                segments.append("Gateway 当前不可达。")
+            }
+
+            return segments.joined(separator: " ")
+        }
     }
 
     var isBusy: Bool {
         isRefreshing || isInstalling || isLaunchingBinding
+    }
+
+    var isFlowActive: Bool {
+        isInstalling || isLaunchingBinding
+    }
+
+    var shouldOfferInstall: Bool {
+        guard openClawBinaryPath != nil else { return false }
+        guard let derivedState = cardState.stableDerivedState else { return false }
+        if case .pluginMissing = derivedState {
+            return true
+        }
+        return false
+    }
+
+    var shouldOfferBind: Bool {
+        guard openClawBinaryPath != nil else { return false }
+        guard let derivedState = cardState.stableDerivedState else { return false }
+        if case .pluginPresentButNotConfigured = derivedState {
+            return true
+        }
+        return false
+    }
+
+    var usesWarningTone: Bool {
+        switch cardState {
+        case .missingCLI, .statusCommandFailed, .jsonParseFailed, .pluginConfiguredGatewayUnreachable:
+            return true
+        case .refreshing(let lastKnown):
+            if case .pluginConfiguredGatewayUnreachable = lastKnown {
+                return true
+            }
+            return false
+        case .pluginMissing, .pluginPresentButNotConfigured, .pluginConfiguredGatewayReachable:
+            return false
+        }
+    }
+
+    var usesSuccessTone: Bool {
+        switch cardState {
+        case .pluginConfiguredGatewayReachable:
+            return true
+        case .refreshing(let lastKnown):
+            if case .pluginConfiguredGatewayReachable = lastKnown {
+                return true
+            }
+            return false
+        case .missingCLI,
+             .statusCommandFailed,
+             .jsonParseFailed,
+             .pluginMissing,
+             .pluginPresentButNotConfigured,
+             .pluginConfiguredGatewayUnreachable:
+            return false
+        }
     }
 
     func refreshWeChatStatus() {
@@ -94,7 +285,10 @@ final class OpenClawChannelManager: ObservableObject {
 
         let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
         let commandRunner = runCommand
+        let lastKnownState = cardState.stableDerivedState
+
         isRefreshing = true
+        cardState = .refreshing(lastKnown: lastKnownState)
 
         Task.detached(priority: .utility) {
             let openClawBinaryPath = Self.detectBinaryPath(
@@ -102,52 +296,17 @@ final class OpenClawChannelManager: ObservableObject {
                 environment: environment,
                 runCommand: commandRunner
             )
-            let npxBinaryPath = Self.detectBinaryPath(
-                named: "npx",
+            let outcome = Self.queryWeixinStatus(
+                openClawBinaryPath: openClawBinaryPath,
                 environment: environment,
                 runCommand: commandRunner
             )
-            let pluginInstalled = openClawBinaryPath.map {
-                Self.queryPluginInstalled(
-                    openClawBinaryPath: $0,
-                    environment: environment,
-                    runCommand: commandRunner
-                )
-            } ?? false
-            let bindingDetected = openClawBinaryPath.map {
-                Self.queryBindingDetected(
-                    openClawBinaryPath: $0,
-                    environment: environment,
-                    runCommand: commandRunner
-                )
-            } ?? false
 
             await MainActor.run {
                 self.isRefreshing = false
                 self.lastRefreshDate = Date()
                 self.openClawBinaryPath = openClawBinaryPath.map(OpenClawInstaller.displayBinaryPath(_:))
-                self.npxBinaryPath = npxBinaryPath.map(OpenClawInstaller.displayBinaryPath(_:))
-                self.pluginInstalled = pluginInstalled
-                self.bindingDetected = bindingDetected
-                self.pendingInstallCompletion = self.pendingInstallCompletion && !pluginInstalled
-                self.pendingBindingCompletion = self.pendingBindingCompletion && !bindingDetected
-                if bindingDetected || (!self.isInstalling && !self.isLaunchingBinding) {
-                    self.runtimeSnapshot = WeChatRuntimeSnapshot()
-                }
-
-                if openClawBinaryPath == nil {
-                    self.lastActionSummary = "未检测到 OpenClaw"
-                    self.lastActionDetail = "请先安装 OpenClaw，再内置微信 Channel 能力。"
-                } else if pluginInstalled == false {
-                    self.lastActionSummary = "微信能力未安装"
-                    self.lastActionDetail = "点击“安装微信能力”后，Clawbar 会执行官方 WeixinClawBot 安装流程。"
-                } else if bindingDetected == false {
-                    self.lastActionSummary = "等待微信绑定"
-                    self.lastActionDetail = "点击“开始绑定”后，Clawbar 会自动拉起终端执行扫码登录。"
-                } else {
-                    self.lastActionSummary = "微信 Channel 已连接"
-                    self.lastActionDetail = "已检测到微信 Channel 可用；用户后续只需要重新绑定时再扫码。"
-                }
+                self.applyRefreshOutcome(outcome)
             }
         }
     }
@@ -157,24 +316,37 @@ final class OpenClawChannelManager: ObservableObject {
 
         let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
         let commandRunner = runCommand
-        guard Self.detectBinaryPath(named: "openclaw", environment: environment, runCommand: commandRunner) != nil else {
+        guard let openClawBinaryPath = Self.detectBinaryPath(
+            named: "openclaw",
+            environment: environment,
+            runCommand: commandRunner
+        ) else {
+            self.openClawBinaryPath = nil
+            cardState = .missingCLI
             lastActionSummary = "未检测到 OpenClaw"
             lastActionDetail = "请先安装 OpenClaw，再安装微信能力。"
             return
         }
-        guard Self.detectBinaryPath(named: "npx", environment: environment, runCommand: commandRunner) != nil else {
+
+        self.openClawBinaryPath = OpenClawInstaller.displayBinaryPath(openClawBinaryPath)
+
+        guard let npxBinaryPath = Self.detectBinaryPath(
+            named: "npx",
+            environment: environment,
+            runCommand: commandRunner
+        ) else {
+            self.npxBinaryPath = nil
             lastActionSummary = "未检测到 npx"
             lastActionDetail = "当前环境里没有可用的 npx，无法执行官方微信安装器。"
             return
         }
 
-        isInstalling = true
-        pendingInstallCompletion = false
-        pendingBindingCompletion = false
+        self.npxBinaryPath = OpenClawInstaller.displayBinaryPath(npxBinaryPath)
         runtimeSnapshot = WeChatRuntimeSnapshot()
         lastActionSummary = "正在后台安装微信能力..."
         lastActionDetail = "Clawbar 会在后台执行官方安装器，并把二维码显示在这里。"
         lastCommandOutput = "$ \(WeChatFlowKind.install.command)\n\n"
+        isInstalling = true
 
         startBackgroundFlow(kind: .install, environment: environment)
     }
@@ -184,20 +356,27 @@ final class OpenClawChannelManager: ObservableObject {
 
         let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
         let commandRunner = runCommand
-        guard Self.detectBinaryPath(named: "openclaw", environment: environment, runCommand: commandRunner) != nil else {
+        guard let openClawBinaryPath = Self.detectBinaryPath(
+            named: "openclaw",
+            environment: environment,
+            runCommand: commandRunner
+        ) else {
+            self.openClawBinaryPath = nil
+            cardState = .missingCLI
             lastActionSummary = "未检测到 OpenClaw"
             lastActionDetail = "请先安装 OpenClaw，再开始微信绑定。"
             return
         }
-        guard pluginInstalled else {
-            lastActionSummary = "请先安装微信能力"
-            lastActionDetail = "微信插件还没有安装完成，暂时不能开始绑定。"
+
+        self.openClawBinaryPath = OpenClawInstaller.displayBinaryPath(openClawBinaryPath)
+
+        guard shouldOfferBind else {
+            lastActionSummary = "当前无需重新扫码"
+            lastActionDetail = "只有在微信能力已安装但尚未绑定时，才需要重新发起扫码。"
             return
         }
 
         isLaunchingBinding = true
-        pendingInstallCompletion = false
-        pendingBindingCompletion = false
         runtimeSnapshot = WeChatRuntimeSnapshot()
         lastActionSummary = "正在后台发起扫码连接..."
         lastActionDetail = "Clawbar 会在后台执行登录命令，并把二维码显示在这里。"
@@ -213,8 +392,6 @@ final class OpenClawChannelManager: ObservableObject {
         activeFlowKind = nil
         isInstalling = false
         isLaunchingBinding = false
-        pendingInstallCompletion = false
-        pendingBindingCompletion = false
         runtimeSnapshot = WeChatRuntimeSnapshot()
         lastActionSummary = "已取消微信流程"
         lastActionDetail = "后台安装或扫码流程已停止。"
@@ -263,25 +440,17 @@ final class OpenClawChannelManager: ObservableObject {
         runtimeSnapshot = Self.parseRuntimeSnapshot(from: lastCommandOutput)
 
         if runtimeSnapshot.connected {
-            pendingInstallCompletion = false
-            pendingBindingCompletion = false
             lastActionSummary = "微信连接成功"
             lastActionDetail = kind == .install
                 ? "插件已安装并完成扫码，正在重启 OpenClaw Gateway。"
                 : "扫码已确认，正在等待连接完成。"
         } else if runtimeSnapshot.restartingGateway {
-            pendingInstallCompletion = kind == .install
-            pendingBindingCompletion = false
             lastActionSummary = "正在重启 OpenClaw Gateway"
             lastActionDetail = "微信账号已经确认，Clawbar 正在等待 Gateway 重启完成。"
         } else if runtimeSnapshot.scanned {
-            pendingInstallCompletion = kind == .install
-            pendingBindingCompletion = kind == .bind
             lastActionSummary = "已扫码，等待微信确认"
             lastActionDetail = "请在手机微信里确认登录。"
         } else if runtimeSnapshot.qrCodeURL != nil {
-            pendingInstallCompletion = kind == .install
-            pendingBindingCompletion = kind == .bind
             lastActionSummary = kind == .install ? "请扫码安装并连接" : "请扫码连接微信"
             lastActionDetail = "二维码已准备好。请直接用微信扫一扫。"
         } else if runtimeSnapshot.pluginReadyForLogin {
@@ -309,9 +478,6 @@ final class OpenClawChannelManager: ObservableObject {
         }
 
         if status == 0 {
-            pendingInstallCompletion = false
-            pendingBindingCompletion = false
-
             if runtimeSnapshot.connected {
                 lastActionSummary = "微信连接成功"
                 lastActionDetail = "后台流程已完成，正在刷新当前状态。"
@@ -324,11 +490,88 @@ final class OpenClawChannelManager: ObservableObject {
             return
         }
 
-        pendingInstallCompletion = false
-        pendingBindingCompletion = false
         lastActionSummary = kind == .install ? "微信安装流程失败" : "微信扫码流程失败"
         lastActionDetail = Self.extractFailureDetail(from: lastCommandOutput)
             ?? "后台命令异常退出，详情见最近输出。"
+    }
+
+    private func applyRefreshOutcome(_ outcome: OpenClawWeixinRefreshOutcome) {
+        switch outcome {
+        case .missingCLI:
+            statusPayload = nil
+            cardState = .missingCLI
+            lastActionSummary = "未检测到 OpenClaw"
+            lastActionDetail = "请先安装 OpenClaw，再继续微信能力安装和绑定。"
+        case .statusCommandFailed(let detail):
+            statusPayload = nil
+            cardState = .statusCommandFailed(detail: detail)
+            lastActionSummary = "状态检查失败"
+            lastActionDetail = detail
+        case .jsonParseFailed(let detail):
+            statusPayload = nil
+            cardState = .jsonParseFailed(detail: detail)
+            lastActionSummary = "状态输出不可解析"
+            lastActionDetail = detail
+        case .success(let payload, let derivedState):
+            statusPayload = payload
+            cardState = Self.cardState(for: derivedState)
+            switch derivedState {
+            case .pluginMissing:
+                lastActionSummary = "微信能力未安装"
+                lastActionDetail = "当前 status 结果里没有发现 openclaw-weixin。"
+            case .pluginPresentButNotConfigured:
+                lastActionSummary = "等待微信绑定"
+                lastActionDetail = "当前 status 结果显示微信能力已存在，但还没有完成扫码绑定。"
+            case .pluginConfiguredGatewayReachable(let accountLabel):
+                lastActionSummary = "微信已可用"
+                if let accountLabel = accountLabel?.trimmedNonEmpty {
+                    lastActionDetail = "已检测到 \(accountLabel)，并且 Gateway 当前可达。"
+                } else {
+                    lastActionDetail = "微信能力已配置，并且 Gateway 当前可达。"
+                }
+            case .pluginConfiguredGatewayUnreachable(let accountLabel, let gatewayDetail):
+                lastActionSummary = "Gateway 当前不可达"
+                if let accountLabel = accountLabel?.trimmedNonEmpty,
+                   let gatewayDetail = gatewayDetail?.trimmedNonEmpty {
+                    lastActionDetail = "已检测到 \(accountLabel)。Gateway 状态：\(gatewayDetail)"
+                } else if let accountLabel = accountLabel?.trimmedNonEmpty {
+                    lastActionDetail = "已检测到 \(accountLabel)，但 Gateway 当前不可达。"
+                } else if let gatewayDetail = gatewayDetail?.trimmedNonEmpty {
+                    lastActionDetail = "微信能力已配置。Gateway 状态：\(gatewayDetail)"
+                } else {
+                    lastActionDetail = "微信能力已配置，但 Gateway 当前不可达。"
+                }
+            }
+        }
+    }
+
+    private nonisolated static func statusLabel(for state: OpenClawWeixinDerivedState) -> String {
+        switch state {
+        case .pluginMissing:
+            return "待安装微信能力"
+        case .pluginPresentButNotConfigured:
+            return "待绑定扫码"
+        case .pluginConfiguredGatewayReachable:
+            return "微信可用"
+        case .pluginConfiguredGatewayUnreachable:
+            return "微信已配置"
+        }
+    }
+
+    private nonisolated static func cardState(for state: OpenClawWeixinDerivedState) -> OpenClawWeixinCardState {
+        switch state {
+        case .pluginMissing:
+            return .pluginMissing
+        case .pluginPresentButNotConfigured:
+            return .pluginPresentButNotConfigured
+        case .pluginConfiguredGatewayReachable(let accountLabel):
+            return .pluginConfiguredGatewayReachable(accountLabel: accountLabel)
+        case .pluginConfiguredGatewayUnreachable(let accountLabel, let gatewayDetail):
+            return .pluginConfiguredGatewayUnreachable(
+                accountLabel: accountLabel,
+                gatewayDetail: gatewayDetail
+            )
+        }
     }
 
     nonisolated static func detectBinaryPath(
@@ -337,65 +580,149 @@ final class OpenClawChannelManager: ObservableObject {
         runCommand: CommandRunner
     ) -> String? {
         let result = runCommand("/bin/zsh", ["-lc", "command -v \(command)"], environment, 3)
-        guard !result.timedOut, result.exitStatus == 0 else { return nil }
-        return OpenClawInstaller.parseDetectedBinaryPath(result.output)
+        if !result.timedOut,
+           result.exitStatus == 0,
+           let path = OpenClawInstaller.parseDetectedBinaryPath(result.output) {
+            return path
+        }
+
+        return nil
     }
 
-    nonisolated static func queryPluginInstalled(
-        openClawBinaryPath: String,
+    private nonisolated static func queryWeixinStatus(
+        openClawBinaryPath: String?,
         environment: [String: String],
         runCommand: CommandRunner
-    ) -> Bool {
-        let result = runCommand(openClawBinaryPath, ["plugins", "list", "--json"], environment, 12)
-        guard !result.timedOut, result.exitStatus == 0 else { return false }
-        return parsePluginInstalled(result.output)
+    ) -> OpenClawWeixinRefreshOutcome {
+        guard let openClawBinaryPath else {
+            return .missingCLI
+        }
+
+        let result = runCommand(openClawBinaryPath, statusArguments, environment, 10)
+        if result.timedOut {
+            return .statusCommandFailed(detail: "openclaw status --json 未在 10 秒内完成。")
+        }
+
+        guard result.exitStatus == 0 else {
+            let detail = extractFailureDetail(from: result.output)
+                ?? "openclaw status --json 退出码 \(result.exitStatus)。"
+            return .statusCommandFailed(detail: detail)
+        }
+
+        guard let payload = parseStatusPayload(from: result.output) else {
+            let detail = makeJSONParseFailureDetail(from: result.output)
+            return .jsonParseFailed(detail: detail)
+        }
+
+        let derivedState = deriveState(from: payload)
+        return .success(payload: payload, derivedState: derivedState)
     }
 
-    nonisolated static func queryBindingDetected(
-        openClawBinaryPath: String,
-        environment: [String: String],
-        runCommand: CommandRunner
-    ) -> Bool {
-        let result = runCommand(openClawBinaryPath, ["channels", "status", "--probe", "--json"], environment, 12)
-        let credentialEntries = listCredentialEntryNames()
-        return parseBindingDetected(statusOutput: result.output, credentialEntries: credentialEntries)
+    nonisolated static func parseStatusPayload(from output: String) -> OpenClawWeixinStatusPayload? {
+        guard let jsonString = extractTrailingJSONObjectString(from: output),
+              let payload = parseJSONObject(from: jsonString) else {
+            return nil
+        }
+
+        let gateway = (payload["gateway"] as? [String: Any]).flatMap { gateway -> OpenClawWeixinStatusPayload.GatewaySnapshot? in
+            OpenClawWeixinStatusPayload.GatewaySnapshot(
+                reachable: gateway["reachable"] as? Bool,
+                error: (gateway["error"] as? String)?.trimmedNonEmpty,
+                url: (gateway["url"] as? String)?.trimmedNonEmpty
+            )
+        } ?? OpenClawWeixinStatusPayload.GatewaySnapshot(
+            reachable: nil,
+            error: nil,
+            url: nil
+        )
+
+        let gatewayService = (payload["gatewayService"] as? [String: Any]).flatMap { gatewayService -> OpenClawWeixinStatusPayload.GatewayServiceSnapshot? in
+            OpenClawWeixinStatusPayload.GatewayServiceSnapshot(
+                installed: gatewayService["installed"] as? Bool,
+                loaded: gatewayService["loaded"] as? Bool,
+                runtimeShort: (gatewayService["runtimeShort"] as? String)?.trimmedNonEmpty
+            )
+        } ?? OpenClawWeixinStatusPayload.GatewayServiceSnapshot(
+            installed: nil,
+            loaded: nil,
+            runtimeShort: nil
+        )
+
+        return OpenClawWeixinStatusPayload(
+            runtimeVersion: (payload["runtimeVersion"] as? String)?.trimmedNonEmpty,
+            channelSummary: payload["channelSummary"] as? [String] ?? [],
+            gateway: gateway,
+            gatewayService: gatewayService
+        )
     }
 
-    nonisolated static func parsePluginInstalled(_ output: String) -> Bool {
-        if let payload = parseJSONObject(from: output),
-           let plugins = payload["plugins"] as? [[String: Any]] {
-            for plugin in plugins {
-                let candidates = [
-                    plugin["id"] as? String,
-                    plugin["name"] as? String,
-                    plugin["packageName"] as? String,
-                    plugin["source"] as? String,
-                ]
-                .compactMap { $0?.lowercased() }
+    nonisolated static func deriveState(from payload: OpenClawWeixinStatusPayload) -> OpenClawWeixinDerivedState {
+        guard let channelStatus = parseChannelSummary(payload.channelSummary) else {
+            return .pluginMissing
+        }
 
-                if candidates.contains(where: { $0.contains("openclaw-weixin") || $0.contains("weixin") }) {
-                    return true
-                }
+        if channelStatus.status == "configured" {
+            if payload.gateway.reachable == true {
+                return .pluginConfiguredGatewayReachable(accountLabel: channelStatus.accountLabel)
+            }
+
+            return .pluginConfiguredGatewayUnreachable(
+                accountLabel: channelStatus.accountLabel,
+                gatewayDetail: payload.gateway.error ?? payload.gatewayService.runtimeShort
+            )
+        }
+
+        return .pluginPresentButNotConfigured
+    }
+
+    nonisolated static func extractTrailingJSONObjectString(from output: String) -> String? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let candidateIndices = trimmed.indices.filter { trimmed[$0] == "{" }
+        for index in candidateIndices.reversed() {
+            let candidate = String(trimmed[index...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.isEmpty else { continue }
+            if parseJSONObject(from: candidate) != nil {
+                return candidate
             }
         }
 
-        let normalized = output.lowercased()
-        return normalized.contains("openclaw-weixin") || normalized.contains("@tencent-weixin/openclaw-weixin")
+        return nil
     }
 
-    nonisolated static func parseBindingDetected(
-        statusOutput: String,
-        credentialEntries: [String]
-    ) -> Bool {
-        if credentialEntries.contains(where: { $0.lowercased().hasPrefix(wechatChannelID) }) {
-            return true
+    nonisolated static func parseChannelSummary(_ lines: [String]) -> (status: String, accountLabel: String?)? {
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("\(wechatChannelID):") else { continue }
+
+            let parts = trimmed.split(separator: ":", maxSplits: 1).map(String.init)
+            let status = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() : ""
+
+            var accountLabel: String?
+            var nextIndex = index + 1
+            while nextIndex < lines.count {
+                let nextLine = lines[nextIndex]
+                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                if nextTrimmed.isEmpty {
+                    nextIndex += 1
+                    continue
+                }
+                guard nextLine.first?.isWhitespace == true else { break }
+
+                if accountLabel == nil {
+                    let normalized = nextTrimmed.hasPrefix("-")
+                        ? String(nextTrimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                        : nextTrimmed
+                    accountLabel = normalized.trimmedNonEmpty
+                }
+                nextIndex += 1
+            }
+
+            return (status: status, accountLabel: accountLabel)
         }
 
-        let normalized = statusOutput.lowercased()
-        let mentionsWeChat = normalized.contains(wechatChannelID) || normalized.contains("weixin")
-        let positiveSignal = normalized.contains("ready") || normalized.contains("connected") || normalized.contains("online")
-        let negativeSignal = normalized.contains("not configured") || normalized.contains("disconnected") || normalized.contains("error")
-        return mentionsWeChat && positiveSignal && !negativeSignal
+        return nil
     }
 
     nonisolated static func parseRuntimeSnapshot(from output: String) -> WeChatRuntimeSnapshot {
@@ -424,6 +751,14 @@ final class OpenClawChannelManager: ObservableObject {
         let matches = regex.matches(in: text, range: range)
         guard let result = matches.last, let matchRange = Range(result.range, in: text) else { return nil }
         return String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private nonisolated static func makeJSONParseFailureDetail(from output: String) -> String {
+        if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "openclaw status --json 没有返回任何可解析内容。"
+        }
+
+        return "未能从 openclaw status --json 的输出中提取有效 JSON。"
     }
 
     private nonisolated static func extractFailureDetail(from output: String) -> String? {
@@ -470,35 +805,14 @@ final class OpenClawChannelManager: ObservableObject {
         return process
     }
 
-    nonisolated static func makeTerminalShellCommand(command: String, path: String) -> String {
-        "export PATH=\(shellQuote(path)); \(command)"
-    }
-
     nonisolated static func makeTerminalLaunchArguments(shellCommand: String) -> [String] {
-        [
+        let escapedCommand = appleScriptStringLiteral(shellCommand)
+        return [
             "-e", #"tell application "Terminal""#,
             "-e", "activate",
-            "-e", #"do script "\#(appleScriptQuoted(shellCommand))""#,
+            "-e", "do script \(escapedCommand)",
             "-e", "end tell",
         ]
-    }
-
-    nonisolated static func listCredentialEntryNames(
-        fileManager: FileManager = .default,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> [String] {
-        let credentialsDirectory = homeDirectory
-            .appending(path: ".openclaw")
-            .appending(path: "credentials")
-
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: credentialsDirectory,
-            includingPropertiesForKeys: nil
-        ) else {
-            return []
-        }
-
-        return entries.map(\.lastPathComponent)
     }
 
     private nonisolated static func parseJSONObject(from output: String) -> [String: Any]? {
@@ -506,15 +820,11 @@ final class OpenClawChannelManager: ObservableObject {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    private nonisolated static func shellQuote(_ text: String) -> String {
-        let escaped = text.replacingOccurrences(of: "'", with: #"'\"'\"'"#)
-        return "'\(escaped)'"
-    }
-
-    private nonisolated static func appleScriptQuoted(_ text: String) -> String {
-        text
+    private nonisolated static func appleScriptStringLiteral(_ value: String) -> String {
+        let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     private nonisolated static func runCommand(
@@ -543,31 +853,31 @@ final class OpenClawChannelManager: ObservableObject {
         }
 
         let deadline = Date().addingTimeInterval(timeout)
+        var timedOut = false
+
         while process.isRunning, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
 
         if process.isRunning {
+            timedOut = true
             process.terminate()
-            return OpenClawChannelCommandResult(
-                output: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
-                exitStatus: process.terminationStatus,
-                timedOut: true
-            )
+            process.waitUntilExit()
         }
 
-        let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let output = sanitizeChannelOutput(outputPipe.fileHandleForReading.readDataToEndOfFile())
         return OpenClawChannelCommandResult(
             output: output,
             exitStatus: process.terminationStatus,
-            timedOut: false
+            timedOut: timedOut
         )
     }
 }
 
 private extension String {
-    func nonEmptyOr(_ fallback: String) -> String {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : self
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

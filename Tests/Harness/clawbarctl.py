@@ -19,8 +19,8 @@ from typing import Any
 
 
 DEFAULT_OPENCLAW_BINARY_PATH = "/opt/homebrew/bin/openclaw"
-DEFAULT_OPENCLAW_DETAIL = "status 已返回最近状态。"
-DEFAULT_OPENCLAW_EXCERPT = "plugins.allow is empty; discovered non-bundled plugins."
+DEFAULT_OPENCLAW_DETAIL = "Provider 已配置 · Gateway 可达 · Channel 已就绪"
+DEFAULT_OPENCLAW_EXCERPT = "OpenClaw 2026.4.2"
 SMOKE_LOG_PATTERNS = [
     "CLAWBAR_EVENT app.launch",
     "mode=smokeTest",

@@ -91,4 +91,31 @@ struct OpenClawHealthSnapshot: Equatable, Sendable {
             ),
         ]
     )
+
+    static let deterministicInstalled = OpenClawHealthSnapshot(
+        runtimeVersion: "2026.4.2",
+        dimensions: [
+            OpenClawHealthDimensionSnapshot(
+                dimension: .provider,
+                level: .healthy,
+                statusLabel: "已配置",
+                summary: "OpenRouter / qwen/qwen3.6-plus:free",
+                detail: "认证来源：env: OPENROUTER_API_KEY"
+            ),
+            OpenClawHealthDimensionSnapshot(
+                dimension: .gateway,
+                level: .healthy,
+                statusLabel: "可达",
+                summary: "后台服务运行中",
+                detail: "Gateway 后台服务正在运行。"
+            ),
+            OpenClawHealthDimensionSnapshot(
+                dimension: .channel,
+                level: .healthy,
+                statusLabel: "已就绪",
+                summary: "openclaw-weixin / 已配置",
+                detail: "openclaw-weixin: 已配置"
+            ),
+        ]
+    )
 }

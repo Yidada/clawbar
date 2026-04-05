@@ -225,8 +225,8 @@ final class OpenClawInstallerTests: XCTestCase {
         let overrideState = OpenClawInstallerOverride.from(environment: [
             "CLAWBAR_TEST_OPENCLAW_STATE": "installed",
             "CLAWBAR_TEST_OPENCLAW_BINARY_PATH": "/opt/homebrew/bin/openclaw",
-            "CLAWBAR_TEST_OPENCLAW_DETAIL": "status 已返回最近状态。",
-            "CLAWBAR_TEST_OPENCLAW_EXCERPT": "plugins.allow is empty; discovered non-bundled plugins."
+            "CLAWBAR_TEST_OPENCLAW_DETAIL": "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+            "CLAWBAR_TEST_OPENCLAW_EXCERPT": "OpenClaw 2026.4.2"
         ])
 
         guard case let .installed(snapshot)? = overrideState?.state else {
@@ -234,10 +234,10 @@ final class OpenClawInstallerTests: XCTestCase {
         }
 
         XCTAssertEqual(snapshot.title, "OpenClaw 已安装")
-        XCTAssertEqual(snapshot.detail, "status 已返回最近状态。")
-        XCTAssertEqual(snapshot.excerpt, "plugins.allow is empty; discovered non-bundled plugins.")
+        XCTAssertEqual(snapshot.detail, "Provider 已配置 · Gateway 可达 · Channel 已就绪")
+        XCTAssertEqual(snapshot.excerpt, "OpenClaw 2026.4.2")
         XCTAssertEqual(snapshot.binaryPath, "/opt/homebrew/bin/openclaw")
-        XCTAssertEqual(snapshot.healthSnapshot, .placeholderInstalled)
+        XCTAssertEqual(snapshot.healthSnapshot, .deterministicInstalled)
     }
 
     func testRefreshInstallationStatusUsesOverrideSnapshot() {
@@ -246,10 +246,10 @@ final class OpenClawInstallerTests: XCTestCase {
                 state: .installed(
                     OpenClawStatusSnapshot(
                         title: "OpenClaw 已安装",
-                        detail: "status 已返回最近状态。",
-                        excerpt: "plugins.allow is empty; discovered non-bundled plugins.",
+                        detail: "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+                        excerpt: "OpenClaw 2026.4.2",
                         binaryPath: "/opt/homebrew/bin/openclaw",
-                        healthSnapshot: .placeholderInstalled
+                        healthSnapshot: .deterministicInstalled
                     )
                 )
             ),
@@ -260,10 +260,10 @@ final class OpenClawInstallerTests: XCTestCase {
 
         XCTAssertTrue(installer.isInstalled)
         XCTAssertEqual(installer.statusText, "OpenClaw 已安装")
-        XCTAssertEqual(installer.detailText, "status 已返回最近状态。")
-        XCTAssertEqual(installer.statusExcerpt, "plugins.allow is empty; discovered non-bundled plugins.")
+        XCTAssertEqual(installer.detailText, "Provider 已配置 · Gateway 可达 · Channel 已就绪")
+        XCTAssertEqual(installer.statusExcerpt, "OpenClaw 2026.4.2")
         XCTAssertEqual(installer.installedBinaryPath, "/opt/homebrew/bin/openclaw")
-        XCTAssertEqual(installer.healthSnapshot, .placeholderInstalled)
+        XCTAssertEqual(installer.healthSnapshot, .deterministicInstalled)
         XCTAssertNotNil(installer.lastStatusRefreshDate)
     }
 

@@ -143,10 +143,10 @@ struct OpenClawInstallerOverride: Equatable, Sendable {
             let binaryPath = environment["CLAWBAR_TEST_OPENCLAW_BINARY_PATH"] ?? "/opt/homebrew/bin/openclaw"
             let snapshot = OpenClawStatusSnapshot(
                 title: environment["CLAWBAR_TEST_OPENCLAW_TITLE"] ?? "OpenClaw 已安装",
-                detail: environment["CLAWBAR_TEST_OPENCLAW_DETAIL"] ?? "status 已返回最近状态。",
-                excerpt: environment["CLAWBAR_TEST_OPENCLAW_EXCERPT"],
+                detail: environment["CLAWBAR_TEST_OPENCLAW_DETAIL"] ?? "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+                excerpt: environment["CLAWBAR_TEST_OPENCLAW_EXCERPT"] ?? "OpenClaw 2026.4.2",
                 binaryPath: OpenClawInstaller.displayBinaryPath(binaryPath),
-                healthSnapshot: .placeholderInstalled
+                healthSnapshot: .deterministicInstalled
             )
             return Self(state: .installed(snapshot))
         default:

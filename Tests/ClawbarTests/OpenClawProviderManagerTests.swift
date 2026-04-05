@@ -4,6 +4,7 @@ import XCTest
 final class OpenClawProviderManagerTests: XCTestCase {
     func testParseStatusSnapshotReadsDefaultModelAndAuthSources() {
         let output = """
+        shell warning
         {
           "configPath": "/Users/test/.openclaw/openclaw.json",
           "defaultModel": "openrouter/anthropic/claude-sonnet-4-6",

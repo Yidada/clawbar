@@ -109,6 +109,7 @@ struct OpenClawStatusSnapshot: Equatable, Sendable {
     let detail: String
     let excerpt: String?
     let binaryPath: String
+    let healthSnapshot: OpenClawHealthSnapshot
 }
 
 struct OpenClawGatewayPreparationResult: Equatable, Sendable {
@@ -144,7 +145,8 @@ struct OpenClawInstallerOverride: Equatable, Sendable {
                 title: environment["CLAWBAR_TEST_OPENCLAW_TITLE"] ?? "OpenClaw 已安装",
                 detail: environment["CLAWBAR_TEST_OPENCLAW_DETAIL"] ?? "status 已返回最近状态。",
                 excerpt: environment["CLAWBAR_TEST_OPENCLAW_EXCERPT"],
-                binaryPath: OpenClawInstaller.displayBinaryPath(binaryPath)
+                binaryPath: OpenClawInstaller.displayBinaryPath(binaryPath),
+                healthSnapshot: .placeholderInstalled
             )
             return Self(state: .installed(snapshot))
         default:
@@ -169,6 +171,31 @@ enum OpenClawInstallerError: LocalizedError {
 
 @MainActor
 final class OpenClawInstaller: ObservableObject {
+    struct StatusPayloadSnapshot: Equatable, Sendable {
+        struct GatewaySnapshot: Equatable, Sendable {
+            let reachable: Bool?
+            let error: String?
+            let url: String?
+        }
+
+        struct GatewayServiceSnapshot: Equatable, Sendable {
+            let installed: Bool?
+            let loaded: Bool?
+            let runtimeShort: String?
+        }
+
+        let runtimeVersion: String?
+        let channelSummary: [String]
+        let gateway: GatewaySnapshot
+        let gatewayService: GatewayServiceSnapshot
+    }
+
+    struct ChannelSummaryEntry: Equatable, Sendable {
+        let label: String
+        let status: String
+        let accountLabel: String?
+    }
+
     static let shared: OpenClawInstaller = {
         let environment = ProcessInfo.processInfo.environment
         let overrideState = OpenClawInstallerOverride.from(environment: environment)
@@ -179,9 +206,10 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
     nonisolated static let uninstallCommand = "openclaw uninstall --all --yes --non-interactive && npm rm -g openclaw"
     nonisolated static let detectCommand = "command -v openclaw"
-    nonisolated static let statusCommand = "openclaw status"
     nonisolated static let gatewayInstallCommand = "openclaw gateway install --json"
-    nonisolated static let gatewayStatusCommand = OpenClawGatewayManager.statusCommand
+    nonisolated static let statusArguments = ["status", "--json"]
+    nonisolated static let providerStatusArguments = ["models", "status", "--json"]
+    nonisolated static let gatewayStatusArguments = ["gateway", "status", "--json", "--no-probe"]
 
     @Published private(set) var isInstalling = false
     @Published private(set) var isUninstalling = false
@@ -191,6 +219,7 @@ final class OpenClawInstaller: ObservableObject {
     @Published private(set) var detailText = OpenClawOperation.install.idleDetailText
     @Published private(set) var installedBinaryPath: String?
     @Published private(set) var statusExcerpt: String?
+    @Published private(set) var healthSnapshot: OpenClawHealthSnapshot?
     @Published private(set) var logText = ""
     @Published private(set) var lastLogURL = OpenClawOperation.install.logURL
     @Published private(set) var lastStatusRefreshDate: Date?
@@ -264,9 +293,6 @@ final class OpenClawInstaller: ObservableObject {
             let snapshot = path.map { binaryPath in
                 Self.fetchStatusSnapshot(binaryPath: binaryPath, environment: environment)
             }
-            let gatewaySnapshot = path.map { binaryPath in
-                Self.fetchGatewayStatusSnapshot(binaryPath: binaryPath, environment: environment)
-            }
 
             await MainActor.run {
                 self.isRefreshingStatus = false
@@ -274,13 +300,13 @@ final class OpenClawInstaller: ObservableObject {
                 self.isInstalled = path != nil
                 self.installedBinaryPath = path
                 self.statusExcerpt = snapshot?.excerpt
+                self.healthSnapshot = snapshot?.healthSnapshot
 
                 guard !self.isBusy else { return }
 
                 if let snapshot {
-                    let resolvedSnapshot = Self.mergeStatusSnapshot(snapshot, gatewaySnapshot: gatewaySnapshot)
-                    self.statusText = resolvedSnapshot.title
-                    self.detailText = resolvedSnapshot.detail
+                    self.statusText = snapshot.title
+                    self.detailText = snapshot.detail
                 } else {
                     self.statusText = OpenClawOperation.install.idleStatusText
                     self.detailText = OpenClawOperation.install.idleDetailText
@@ -298,6 +324,7 @@ final class OpenClawInstaller: ObservableObject {
             isInstalled = false
             installedBinaryPath = nil
             statusExcerpt = nil
+            healthSnapshot = nil
             if !isBusy {
                 statusText = OpenClawOperation.install.idleStatusText
                 detailText = OpenClawOperation.install.idleDetailText
@@ -306,6 +333,7 @@ final class OpenClawInstaller: ObservableObject {
             isInstalled = true
             installedBinaryPath = snapshot.binaryPath
             statusExcerpt = snapshot.excerpt
+            healthSnapshot = snapshot.healthSnapshot
             if !isBusy {
                 statusText = snapshot.title
                 detailText = snapshot.detail
@@ -411,53 +439,348 @@ final class OpenClawInstaller: ObservableObject {
         return now.timeIntervalSince(lastRefreshDate) >= refreshInterval
     }
 
-    nonisolated static func makeStatusSnapshot(binaryPath: String, commandOutput: String, timedOut: Bool) -> OpenClawStatusSnapshot {
-        let normalizedOutput = commandOutput
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+    nonisolated static func makeStatusSnapshot(
+        binaryPath: String,
+        statusResult: OpenClawChannelCommandResult,
+        providerSnapshot: OpenClawProviderSnapshot?,
+        gatewaySnapshot: OpenClawGatewayStatusSnapshot?
+    ) -> OpenClawStatusSnapshot {
         let displayPath = displayBinaryPath(binaryPath)
+        let statusPayload = parseStatusPayload(from: statusResult.output)
+        let healthSnapshot = buildHealthSnapshot(
+            statusPayload: statusPayload,
+            providerSnapshot: providerSnapshot,
+            gatewaySnapshot: gatewaySnapshot
+        )
 
-        if timedOut {
-            return OpenClawStatusSnapshot(
-                title: "OpenClaw 已安装",
-                detail: "status 命令未在 3 秒内完成。",
-                excerpt: normalizedOutput.first.map { summarizeStatusLine($0) },
-                binaryPath: displayPath
-            )
-        }
-
-        if let firstLine = normalizedOutput.first {
-            return OpenClawStatusSnapshot(
-                title: "OpenClaw 已安装",
-                detail: "status 已返回最近状态。",
-                excerpt: summarizeStatusLine(firstLine),
-                binaryPath: displayPath
-            )
+        let detail: String
+        if statusResult.timedOut {
+            detail = "openclaw status --json 未在 5 秒内完成；当前展示最近一次可推断的健康视图。"
+        } else if statusPayload == nil {
+            detail = "openclaw status --json 未返回可解析结果；当前展示本地可推断的健康视图。"
+        } else {
+            detail = healthSnapshot.overviewText
         }
 
         return OpenClawStatusSnapshot(
             title: "OpenClaw 已安装",
-            detail: "已检测到全局命令，但 status 暂无可显示输出。",
-            excerpt: nil,
-            binaryPath: displayPath
+            detail: detail,
+            excerpt: healthSnapshot.runtimeText,
+            binaryPath: displayPath,
+            healthSnapshot: healthSnapshot
         )
     }
 
-    nonisolated static func mergeStatusSnapshot(
-        _ snapshot: OpenClawStatusSnapshot,
-        gatewaySnapshot: OpenClawGatewayStatusSnapshot?
-    ) -> OpenClawStatusSnapshot {
-        guard let gatewaySnapshot, gatewaySnapshot.missingUnit else {
-            return snapshot
+    nonisolated static func parseStatusPayload(from output: String) -> StatusPayloadSnapshot? {
+        let jsonString = ChannelCommandSupport.extractTrailingJSONObjectString(from: output) ?? output
+        guard let payload = ChannelCommandSupport.parseJSONObject(from: jsonString) else {
+            return nil
         }
 
-        return OpenClawStatusSnapshot(
-            title: snapshot.title,
-            detail: "OpenClaw CLI 已安装，但 Gateway 服务尚未安装到 launchd。",
-            excerpt: snapshot.excerpt,
-            binaryPath: snapshot.binaryPath
+        let gatewayPayload = payload["gateway"] as? [String: Any]
+        let gatewayServicePayload = payload["gatewayService"] as? [String: Any]
+
+        return StatusPayloadSnapshot(
+            runtimeVersion: trimmedNonEmpty(payload["runtimeVersion"] as? String),
+            channelSummary: payload["channelSummary"] as? [String] ?? [],
+            gateway: StatusPayloadSnapshot.GatewaySnapshot(
+                reachable: gatewayPayload?["reachable"] as? Bool,
+                error: trimmedNonEmpty(gatewayPayload?["error"] as? String),
+                url: trimmedNonEmpty(gatewayPayload?["url"] as? String)
+            ),
+            gatewayService: StatusPayloadSnapshot.GatewayServiceSnapshot(
+                installed: gatewayServicePayload?["installed"] as? Bool,
+                loaded: gatewayServicePayload?["loaded"] as? Bool,
+                runtimeShort: trimmedNonEmpty(gatewayServicePayload?["runtimeShort"] as? String)
+            )
         )
+    }
+
+    nonisolated static func parseChannelSummaryEntries(_ lines: [String]) -> [ChannelSummaryEntry] {
+        var entries: [ChannelSummaryEntry] = []
+        var index = 0
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedLine.isEmpty else {
+                index += 1
+                continue
+            }
+
+            guard line.first?.isWhitespace != true,
+                  let colonIndex = trimmedLine.firstIndex(of: ":") else {
+                index += 1
+                continue
+            }
+
+            let label = String(trimmedLine[..<colonIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawStatus = String(trimmedLine[trimmedLine.index(after: colonIndex)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var accountLabel: String?
+            var nextIndex = index + 1
+
+            while nextIndex < lines.count {
+                let nextLine = lines[nextIndex]
+                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !nextTrimmed.isEmpty else {
+                    nextIndex += 1
+                    continue
+                }
+                guard nextLine.first?.isWhitespace == true else { break }
+
+                if accountLabel == nil {
+                    let normalized = nextTrimmed.hasPrefix("-")
+                        ? String(nextTrimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                        : nextTrimmed
+                    accountLabel = trimmedNonEmpty(normalized)
+                }
+                nextIndex += 1
+            }
+
+            entries.append(
+                ChannelSummaryEntry(
+                    label: label,
+                    status: rawStatus.lowercased(),
+                    accountLabel: accountLabel
+                )
+            )
+            index = nextIndex
+        }
+
+        return entries
+    }
+
+    nonisolated static func buildHealthSnapshot(
+        statusPayload: StatusPayloadSnapshot?,
+        providerSnapshot: OpenClawProviderSnapshot?,
+        gatewaySnapshot: OpenClawGatewayStatusSnapshot?
+    ) -> OpenClawHealthSnapshot {
+        OpenClawHealthSnapshot(
+            runtimeVersion: statusPayload?.runtimeVersion,
+            dimensions: [
+                makeProviderHealthDimension(providerSnapshot),
+                makeGatewayHealthDimension(statusPayload: statusPayload, gatewaySnapshot: gatewaySnapshot),
+                makeChannelHealthDimension(statusPayload: statusPayload),
+            ]
+        )
+    }
+
+    private nonisolated static func makeProviderHealthDimension(
+        _ providerSnapshot: OpenClawProviderSnapshot?
+    ) -> OpenClawHealthDimensionSnapshot {
+        guard let providerSnapshot else {
+            return OpenClawHealthDimensionSnapshot(
+                dimension: .provider,
+                level: .unknown,
+                statusLabel: "未知",
+                summary: "未能读取 models status",
+                detail: "Clawbar 尚未拿到默认模型和认证来源。"
+            )
+        }
+
+        let providerID = resolveDefaultProviderID(from: providerSnapshot.defaultModelRef)
+            ?? providerSnapshot.authStates.first(where: { $0.value.isConfigured })?.key
+        let providerName = providerID.map(providerDisplayName(for:)) ?? "未设置默认 Provider"
+        let selectedModel = providerSnapshot.defaultModelRef.flatMap(modelReferenceAfterProvider)
+            ?? "未设置默认模型"
+        let authState = providerID.flatMap { providerSnapshot.authStates[$0] }
+        let isConfigured = authState?.isConfigured ?? false
+        let statusLabel = isConfigured ? "已配置" : "待配置"
+        let detail: String
+
+        if let source = authState?.source {
+            detail = "认证来源：\(source)"
+        } else if let authDetail = authState?.detail, isConfigured {
+            detail = "认证状态：\(authDetail)"
+        } else if let providerID {
+            detail = "\(providerDisplayName(for: providerID)) 当前还没有可用认证。"
+        } else {
+            detail = "当前还没有检测到默认模型或 Provider 认证。"
+        }
+
+        return OpenClawHealthDimensionSnapshot(
+            dimension: .provider,
+            level: isConfigured ? .healthy : .warning,
+            statusLabel: statusLabel,
+            summary: "\(providerName) / \(selectedModel)",
+            detail: detail
+        )
+    }
+
+    private nonisolated static func makeGatewayHealthDimension(
+        statusPayload: StatusPayloadSnapshot?,
+        gatewaySnapshot: OpenClawGatewayStatusSnapshot?
+    ) -> OpenClawHealthDimensionSnapshot {
+        guard let gatewaySnapshot else {
+            return OpenClawHealthDimensionSnapshot(
+                dimension: .gateway,
+                level: .unknown,
+                statusLabel: "未知",
+                summary: "未能读取 Gateway 状态",
+                detail: "Clawbar 尚未拿到 Gateway 服务与可达性信息。"
+            )
+        }
+
+        let reachable = statusPayload?.gateway.reachable
+        let statusLabel: String
+        let level: OpenClawHealthLevel
+
+        if gatewaySnapshot.missingUnit || gatewaySnapshot.state == .missing {
+            statusLabel = "未安装"
+            level = .critical
+        } else if reachable == true {
+            statusLabel = "可达"
+            level = .healthy
+        } else {
+            switch gatewaySnapshot.state {
+            case .running:
+                statusLabel = "不可达"
+                level = .warning
+            case .stopped:
+                statusLabel = "未启动"
+                level = .warning
+            case .transitioning:
+                statusLabel = "切换中"
+                level = .warning
+            case .unknown:
+                statusLabel = "未知"
+                level = .unknown
+            case .missing:
+                statusLabel = "未安装"
+                level = .critical
+            }
+        }
+
+        let summary: String
+        if reachable == true {
+            summary = gatewaySnapshot.state == .running ? "后台服务运行中" : "Gateway 控制面可达"
+        } else {
+            switch gatewaySnapshot.state {
+            case .running:
+                summary = "后台服务运行中，但控制面不可达"
+            case .stopped:
+                summary = "后台服务未加载"
+            case .transitioning:
+                summary = "后台服务状态切换中"
+            case .missing:
+                summary = "Gateway 服务尚未安装"
+            case .unknown:
+                summary = "Gateway 状态暂不可判定"
+            }
+        }
+
+        let detail = firstNonEmpty([
+            gatewaySnapshot.detail,
+            statusPayload?.gateway.error,
+            statusPayload?.gatewayService.runtimeShort,
+            statusPayload?.gateway.url,
+        ]) ?? "未返回额外 Gateway 细节。"
+
+        return OpenClawHealthDimensionSnapshot(
+            dimension: .gateway,
+            level: level,
+            statusLabel: statusLabel,
+            summary: summary,
+            detail: detail
+        )
+    }
+
+    private nonisolated static func makeChannelHealthDimension(
+        statusPayload: StatusPayloadSnapshot?
+    ) -> OpenClawHealthDimensionSnapshot {
+        guard let statusPayload else {
+            return OpenClawHealthDimensionSnapshot(
+                dimension: .channel,
+                level: .unknown,
+                statusLabel: "未知",
+                summary: "未能读取 Channel 摘要",
+                detail: "Clawbar 尚未拿到 openclaw status --json 的 Channel 汇总。"
+            )
+        }
+
+        let entries = parseChannelSummaryEntries(statusPayload.channelSummary)
+        guard !entries.isEmpty else {
+            return OpenClawHealthDimensionSnapshot(
+                dimension: .channel,
+                level: .warning,
+                statusLabel: "未配置",
+                summary: "未检测到已启用 Channel",
+                detail: "当前 status 结果里还没有可展示的 Channel 摘要。"
+            )
+        }
+
+        let readyEntries = entries.filter { isReadyChannelStatus($0.status) }
+        let statusLabel = readyEntries.isEmpty ? "待配置" : "已就绪"
+        let level: OpenClawHealthLevel = readyEntries.isEmpty ? .warning : .healthy
+        let summary: String
+
+        if entries.count == 1, let entry = entries.first {
+            summary = "\(entry.label) / \(displayChannelStatus(entry.status))"
+        } else {
+            summary = "\(readyEntries.count)/\(entries.count) 个 Channel 已就绪"
+        }
+
+        let detail = entries.prefix(2).map { entry in
+            if let accountLabel = entry.accountLabel {
+                return "\(entry.label): \(displayChannelStatus(entry.status)) (\(accountLabel))"
+            }
+            return "\(entry.label): \(displayChannelStatus(entry.status))"
+        }.joined(separator: " · ")
+
+        return OpenClawHealthDimensionSnapshot(
+            dimension: .channel,
+            level: level,
+            statusLabel: statusLabel,
+            summary: summary,
+            detail: trimmedNonEmpty(detail) ?? "当前 status 结果里还没有可展示的 Channel 摘要。"
+        )
+    }
+
+    private nonisolated static func resolveDefaultProviderID(from modelRef: String?) -> String? {
+        guard let modelRef = trimmedNonEmpty(modelRef) else { return nil }
+        return trimmedNonEmpty(modelRef.split(separator: "/", maxSplits: 1).first.map(String.init))
+    }
+
+    private nonisolated static func modelReferenceAfterProvider(_ modelRef: String) -> String? {
+        let components = modelRef.split(separator: "/", maxSplits: 1).map(String.init)
+        guard components.count == 2 else { return trimmedNonEmpty(modelRef) }
+        return trimmedNonEmpty(components[1])
+    }
+
+    private nonisolated static func providerDisplayName(for providerID: String) -> String {
+        ProviderKind.allCases.first(where: { $0.rawValue == providerID })?.displayName
+            ?? providerID.capitalized
+    }
+
+    private nonisolated static func isReadyChannelStatus(_ status: String) -> Bool {
+        switch status {
+        case "linked", "configured":
+            true
+        default:
+            false
+        }
+    }
+
+    private nonisolated static func displayChannelStatus(_ status: String) -> String {
+        switch status {
+        case "linked":
+            "已连接"
+        case "configured":
+            "已配置"
+        case "not linked":
+            "未连接"
+        case "not configured":
+            "未配置"
+        case "disabled":
+            "已禁用"
+        default:
+            status
+        }
+    }
+
+    private nonisolated static func firstNonEmpty(_ values: [String?]) -> String? {
+        values.compactMap(trimmedNonEmpty).first
     }
 
     nonisolated static func prepareGatewayService(
@@ -587,17 +910,52 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     private nonisolated static func fetchStatusSnapshot(binaryPath: String, environment: [String: String]) -> OpenClawStatusSnapshot {
-        let result = runCommand(statusCommand, environment: environment, timeout: 3)
+        let statusResult = ChannelCommandSupport.runCommand(
+            binaryPath,
+            statusArguments,
+            environment,
+            5
+        )
+        let providerSnapshot = fetchProviderStatusSnapshot(binaryPath: binaryPath, environment: environment)
+        let gatewaySnapshot = fetchGatewayStatusSnapshot(binaryPath: binaryPath, environment: environment)
+
         return makeStatusSnapshot(
             binaryPath: binaryPath,
-            commandOutput: result.output,
-            timedOut: result.timedOut
+            statusResult: statusResult,
+            providerSnapshot: providerSnapshot,
+            gatewaySnapshot: gatewaySnapshot
         )
     }
 
+    private nonisolated static func fetchProviderStatusSnapshot(
+        binaryPath: String,
+        environment: [String: String]
+    ) -> OpenClawProviderSnapshot? {
+        let result = ChannelCommandSupport.runCommand(
+            binaryPath,
+            providerStatusArguments,
+            environment,
+            8
+        )
+        guard !result.timedOut, result.exitStatus == 0 else { return nil }
+        return OpenClawProviderManager.parseStatusSnapshot(result.output, binaryPath: binaryPath)
+    }
+
     private nonisolated static func fetchGatewayStatusSnapshot(binaryPath: String, environment: [String: String]) -> OpenClawGatewayStatusSnapshot {
-        let result = runGatewayCommand(gatewayStatusCommand, environment, 8)
-        return OpenClawGatewayManager.makeStatusSnapshot(binaryPath: binaryPath, commandResult: result)
+        let result = ChannelCommandSupport.runCommand(
+            binaryPath,
+            gatewayStatusArguments,
+            environment,
+            8
+        )
+        return OpenClawGatewayManager.makeStatusSnapshot(
+            binaryPath: binaryPath,
+            commandResult: OpenClawGatewayCommandResult(
+                output: result.output,
+                exitStatus: result.exitStatus,
+                timedOut: result.timedOut
+            )
+        )
     }
 
     private nonisolated static func runGatewayCommand(
@@ -757,7 +1115,6 @@ final class OpenClawInstaller: ObservableObject {
                     return
                 }
 
-                let snapshot = Self.fetchStatusSnapshot(binaryPath: openClawPath, environment: environment)
                 let gatewayPreparation = Self.prepareGatewayService(
                     binaryPath: openClawPath,
                     environment: environment,
@@ -770,7 +1127,6 @@ final class OpenClawInstaller: ObservableObject {
                     self.isInstalling = false
                     self.isInstalled = true
                     self.installedBinaryPath = openClawPath
-                    self.statusExcerpt = snapshot.excerpt
                     self.lastStatusRefreshDate = self.nowProvider()
 
                     if let token = gatewayPreparation.token {
@@ -792,6 +1148,7 @@ final class OpenClawInstaller: ObservableObject {
                     }
 
                     OpenClawGatewayManager.shared.refreshStatus()
+                    self.refreshInstallationStatus(force: true)
                 }
             }
         case let .failure(error):
@@ -835,6 +1192,7 @@ final class OpenClawInstaller: ObservableObject {
             isInstalled = false
             installedBinaryPath = nil
             statusExcerpt = nil
+            healthSnapshot = nil
             lastStatusRefreshDate = nowProvider()
             statusText = "OpenClaw 已卸载。"
             detailText = "官方卸载流程和全局 CLI 移除已完成。"

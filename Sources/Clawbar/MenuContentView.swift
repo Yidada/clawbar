@@ -70,7 +70,7 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(installer.isRefreshingStatus ? Color.orange : Color.green)
+                    .fill(statusIndicatorColor)
                     .frame(width: 8, height: 8)
 
                 Text("OpenClaw")
@@ -99,17 +99,25 @@ struct MenuContentView: View {
             Text(installer.detailText)
                 .font(.caption)
                 .foregroundStyle(.primary)
-                .lineLimit(2)
+                .lineLimit(3)
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawDetail))
 
+            if let healthSnapshot = installer.healthSnapshot {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(healthSnapshot.dimensions) { dimension in
+                        healthDimensionRow(dimension)
+                    }
+                }
+            }
+
             if let statusExcerpt = installer.statusExcerpt {
                 Text(statusExcerpt)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier(model.accessibilityIdentifier(for: .openClawExcerpt))
@@ -140,5 +148,70 @@ struct MenuContentView: View {
         gatewayManager.refreshStatus()
         openWindow(id: ClawbarWindow.applicationManagementID)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var statusIndicatorColor: Color {
+        if installer.isRefreshingStatus {
+            return .orange
+        }
+
+        switch installer.healthSnapshot?.overallLevel {
+        case .healthy:
+            return .green
+        case .warning:
+            return .orange
+        case .critical:
+            return .red
+        case .unknown, .none:
+            return .gray
+        }
+    }
+
+    @ViewBuilder
+    private func healthDimensionRow(_ dimension: OpenClawHealthDimensionSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(dimension.dimension.title)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+
+                Text(dimension.summary)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 8)
+
+                Text(dimension.statusLabel)
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(healthLevelColor(dimension.level))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(healthLevelColor(dimension.level).opacity(0.14))
+                    .clipShape(Capsule())
+            }
+
+            Text(dimension.detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.tail)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func healthLevelColor(_ level: OpenClawHealthLevel) -> Color {
+        switch level {
+        case .healthy:
+            .green
+        case .warning:
+            .orange
+        case .critical:
+            .red
+        case .unknown:
+            .gray
+        }
     }
 }

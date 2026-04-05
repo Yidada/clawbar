@@ -135,6 +135,22 @@ enum ChannelCommandSupport {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
+    static func extractTrailingJSONObjectString(from output: String) -> String? {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let candidateIndices = trimmed.indices.filter { trimmed[$0] == "{" }
+        for index in candidateIndices.reversed() {
+            let candidate = String(trimmed[index...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !candidate.isEmpty else { continue }
+            if parseJSONObject(from: candidate) != nil {
+                return candidate
+            }
+        }
+
+        return nil
+    }
+
     static func extractFailureDetail(from output: String) -> String? {
         let candidates = output
             .split(separator: "\n")

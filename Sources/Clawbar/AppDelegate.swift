@@ -41,7 +41,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let environment = environmentProvider()
+        let mode = lifecycleController.mode(in: environment)
         let launchPlan = lifecycleController.launchPlan(in: environment)
+
+        ClawbarEventLogger.emit(
+            "app.launch",
+            fields: [
+                "mode": mode.rawValue,
+                "activationPolicy": launchPlan.activationPolicy.rawValue,
+                "activatesApp": launchPlan.activatesApp ? "true" : "false",
+                "showsSmokeTestWindow": launchPlan.showsSmokeTestWindow ? "true" : "false",
+            ]
+        )
 
         setActivationPolicy(launchPlan.activationPolicy)
 

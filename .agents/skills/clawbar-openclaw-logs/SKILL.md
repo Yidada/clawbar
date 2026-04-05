@@ -10,7 +10,7 @@ Use this skill before ad hoc debugging when Clawbar or OpenClaw is behaving unex
 ## Workflow
 
 1. Work from the repository root of the current `clawbar` checkout.
-2. Run `./.agents/skills/clawbar-openclaw-logs/scripts/collect-logs.sh`.
+2. Run `python3 Tests/Harness/clawbarctl.py logs collect` or `./.agents/skills/clawbar-openclaw-logs/scripts/collect-logs.sh`.
 3. Inspect the printed artifact directory and start with `summary.txt`.
 4. Use the captured log files to confirm the failure mode before proposing a fix.
 
@@ -18,11 +18,12 @@ Use this skill before ad hoc debugging when Clawbar or OpenClaw is behaving unex
 
 - Captures the current process list for `Clawbar`, `openclaw`, and related helpers.
 - Copies recent Clawbar development and smoke-test logs from `Artifacts/` when present.
+- Copies the current harness app state and recent `Artifacts/Harness/Runs/*/summary.json` files when present.
 - Copies Clawbar-managed OpenClaw install and uninstall logs from `~/Library/Logs/Clawbar/`.
 - Copies the latest OpenClaw gateway runtime logs from `/tmp/openclaw/`.
 - Copies OpenClaw config audit logs from `~/.openclaw/logs/`.
 - Captures a recent macOS unified log slice filtered to `Clawbar` and `openclaw`.
-- Writes everything into `Artifacts/Diagnostics/<timestamp>/`.
+- Writes everything into `Artifacts/Harness/Runs/<timestamp>-logs-collect/`.
 
 ## Notes
 

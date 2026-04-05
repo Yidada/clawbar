@@ -41,5 +41,11 @@ final class SmokeTestWindowPresenter {
         window.center()
         window.makeKeyAndOrderFront(nil)
         self.window = window
+        ClawbarEventLogger.emit(
+            "smoke.window.shown",
+            fields: [
+                "title": configuration.smokeTestWindowTitle,
+            ]
+        )
     }
 }

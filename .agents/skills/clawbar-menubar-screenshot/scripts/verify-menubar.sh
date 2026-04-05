@@ -37,43 +37,32 @@ VERIFY_STATE="${CLAWBAR_VERIFY_OPENCLAW_STATE:-installed}"
 
 cd "$ROOT_DIR"
 
-if [[ "${CLAWBAR_VERIFY_BUILD:-1}" != "0" ]]; then
-    swift build >/dev/null
+HARNESS_ARGS=(
+    app start
+    --mode ui
+    --wait-seconds "$LAUNCH_WAIT"
+    --openclaw-state "$VERIFY_STATE"
+)
+
+if [[ "$VERIFY_STATE" == "installed" ]]; then
+    HARNESS_ARGS+=(
+        --openclaw-binary-path /opt/homebrew/bin/openclaw
+        --openclaw-detail "status 已返回最近状态。"
+        --openclaw-excerpt "plugins.allow is empty; discovered non-bundled plugins."
+    )
 fi
 
-APP_BINARY_REAL="$(
-    python3 - <<'PY'
-from pathlib import Path
-print(Path(".build/debug/Clawbar").resolve())
-PY
-)"
-
-if [[ ! -x "$APP_BINARY_REAL" ]]; then
-    echo "Expected built Clawbar binary at $APP_BINARY_REAL" >&2
-    exit 1
+if [[ "${CLAWBAR_VERIFY_BUILD:-1}" == "0" ]]; then
+    HARNESS_ARGS+=(--no-build)
 fi
 
 if [[ "${CLAWBAR_VERIFY_RESTART:-1}" == "1" ]]; then
-    pkill -f "$APP_BINARY_REAL" >/dev/null 2>&1 || true
-    sleep 1
+    HARNESS_ARGS+=(--restart)
 fi
 
-if ! pgrep -f "$APP_BINARY_REAL" >/dev/null 2>&1; then
-    if [[ "$VERIFY_STATE" == "installed" ]]; then
-        LAUNCH_COMMAND="cd \"$ROOT_DIR\" && env CLAWBAR_UI_TEST=1 CLAWBAR_TEST_OPENCLAW_STATE=installed CLAWBAR_TEST_OPENCLAW_BINARY_PATH=/opt/homebrew/bin/openclaw CLAWBAR_TEST_OPENCLAW_DETAIL='status 已返回最近状态。' CLAWBAR_TEST_OPENCLAW_EXCERPT='plugins.allow is empty; discovered non-bundled plugins.' \"$APP_BINARY_REAL\""
-    else
-        LAUNCH_COMMAND="cd \"$ROOT_DIR\" && env CLAWBAR_UI_TEST=1 CLAWBAR_TEST_OPENCLAW_STATE=missing \"$APP_BINARY_REAL\""
-    fi
-
-    osascript - "$LAUNCH_COMMAND" <<'APPLESCRIPT' >/dev/null
-on run argv
-    tell application "Terminal"
-        activate
-        do script (item 1 of argv)
-    end tell
-end run
-APPLESCRIPT
-    sleep "$LAUNCH_WAIT"
+STATUS_OUTPUT="$(python3 "$ROOT_DIR/Tests/Harness/clawbarctl.py" app status 2>/dev/null || true)"
+if [[ "${CLAWBAR_VERIFY_RESTART:-1}" == "1" || "$STATUS_OUTPUT" != *"state: running"* ]]; then
+    python3 "$ROOT_DIR/Tests/Harness/clawbarctl.py" "${HARNESS_ARGS[@]}" >/dev/null
 fi
 
 swift "$SKILL_DIR/scripts/press_status_item.swift" \

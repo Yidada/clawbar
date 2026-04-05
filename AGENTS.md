@@ -24,19 +24,28 @@ Keep transient material out of `References/`. Use `Artifacts/` for generated out
 ## Build, Test, and Development Commands
 Use the package root for all commands:
 
-- `swift run Clawbar`: build and launch the menu bar app.
+- `swift run Clawbar`: build and launch the menu bar app once.
 - `swift build`: compile the package without running it.
-- `swift test`: run the XCTest suite.
-- `./Scripts/dev.sh`: watch `Package.swift`, `Sources/`, and `Tests/`, then rebuild and relaunch automatically. Logs go to `Artifacts/DevRunner/clawbar-dev.log`.
-- `./Scripts/check_coverage.sh`: run tests with coverage and fail if any function under `Sources/ClawbarKit` is uncovered.
-- `./Scripts/smoke_test.sh`: build, launch the smoke harness, and capture `Artifacts/SmokeTests/hello-world-smoke.png`.
-- `./Scripts/test.sh`: run the coverage gate and smoke test together.
+- `swift test`: run the full XCTest suite directly.
+- `python3 Tests/Harness/clawbarctl.py app dev-loop`: watch `Package.swift`, `Sources/`, and `Tests/`, then rebuild and relaunch automatically.
+- `python3 Tests/Harness/clawbarctl.py app start --mode menu-bar|smoke|ui`: build and launch Clawbar in a tracked background session.
+- `python3 Tests/Harness/clawbarctl.py app stop`: stop the tracked Clawbar process and any stale matching binaries.
+- `python3 Tests/Harness/clawbarctl.py test unit --coverage-gate`: run tests with the `ClawbarKit` coverage gate.
+- `python3 Tests/Harness/clawbarctl.py test smoke`: build, launch the smoke harness, capture a screenshot, and assert lifecycle logs.
+- `python3 Tests/Harness/clawbarctl.py test integration --suite all`: run grouped feature integration suites for Feishu, WeChat, Provider, Gateway, and Installer flows.
+- `python3 Tests/Harness/clawbarctl.py test all`: run unit + smoke + integration in one pass.
+- `python3 Tests/Harness/clawbarctl.py logs collect`: collect the current diagnostics bundle.
+
+Compatibility note:
+
+- `./Scripts/dev.sh`, `./Scripts/check_coverage.sh`, `./Scripts/smoke_test.sh`, and `./Scripts/test.sh` remain available as thin wrappers around `Tests/Harness/clawbarctl.py`.
+- Harness artifacts live under `Artifacts/Harness/Runs/<timestamp>-<label>/`, with the currently tracked app state stored at `Artifacts/Harness/State/app-state.json`.
 
 ## Coding Style & Naming Conventions
 Follow the existing Swift style: 4-space indentation, one top-level type per file where practical, `UpperCamelCase` for types, `lowerCamelCase` for properties and methods, and clear scene/view names such as `ApplicationManagementView`. Keep UI code thin in `Sources/Clawbar` and push testable logic into `ClawbarKit`. The package enables Swift strict concurrency features, so prefer `Sendable` types and concurrency-safe APIs when adding shared state.
 
 ## Testing Guidelines
-Tests use `XCTest`. Name test files after the subject under test, for example `AppConfigurationTests.swift`, and use descriptive methods like `testIsSmokeTestEnabledReturnsTrueWhenFlagIsSet`. Add or update unit tests for logic changes in `ClawbarKit`. For menu or window behavior, also run `./Scripts/smoke_test.sh`; UI changes should keep the smoke harness passing and refresh screenshot evidence when relevant.
+Tests use `XCTest`. Name test files after the subject under test, for example `AppConfigurationTests.swift`, and use descriptive methods like `testIsSmokeTestEnabledReturnsTrueWhenFlagIsSet`. Add or update unit tests for logic changes in `ClawbarKit`. For menu or window behavior, run `python3 Tests/Harness/clawbarctl.py test smoke`; UI changes should keep the smoke harness passing and refresh screenshot evidence when relevant. When a change affects Feishu、微信、Provider、Gateway 或安装流程，也应重跑对应的 `python3 Tests/Harness/clawbarctl.py test integration --suite ...` 分组。
 
 ## Commit & Pull Request Guidelines
 Recent history uses short, imperative commit subjects such as `Add OpenClaw install flow and status to Clawbar menu`. Keep commits focused and descriptive. Pull requests should summarize behavior changes, list validation commands run, link the related issue when applicable, and include screenshots for menu/window UI changes. Avoid mixing reference-material updates in `References/` with app changes unless the PR is explicitly about syncing references.

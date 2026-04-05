@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+
 permissions:
   contents: write
 
@@ -14,13 +18,19 @@ concurrency:
 
 jobs:
   release:
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Select Xcode 26.2
+        run: |
+          sudo xcode-select -s "$DEVELOPER_DIR"
+          xcodebuild -version
+          swift --version
 
       - name: Compute release metadata
         id: meta
@@ -48,7 +58,7 @@ jobs:
         run: ./Scripts/package_app.sh
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: clawbar-app-${{ steps.meta.outputs.build_number }}
           path: |

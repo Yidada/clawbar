@@ -2,13 +2,9 @@
 
 ## 背景
 
-当前 `clawbar` 已经有项目级 `.agents/skills/`，但缺少统一清单和同步约定。结果是：
+`clawbar` 已经把项目级 skill 放在 `.agents/skills/`，但如果每个 skill 自己维护 build、start、stop、logs、diagnostics 逻辑，就会重新长出一套隐性的脚本系统。
 
-- 仓库内 skill 和全局 skill 的边界不清晰
-- 哪些 skill 属于当前项目，没有一个可检查的来源
-- 如果某个外部 skill 变成项目依赖，容易继续隐式依赖 `~/.codex/skills` 或 `~/.agents/skills`
-
-这次整理把项目级 skill 明确成仓库资产，而不是个人机器上的隐式前置条件。
+这次整理的目标不是减少 skill 数量，而是把 skill 和统一执行面绑定起来，让 Agent 能直接从 skill 文档跳到真实可执行入口。
 
 ## 决策
 
@@ -20,6 +16,7 @@
 - 如果某个全局 skill 变成项目依赖，先登记到 `.agents/skills/registry.json`
 - 外部 skill 需要 vendor 到仓库，而不是只存在于 `~/.codex/skills` 或 `~/.agents/skills`
 - 项目文档、脚本和自动化默认只能依赖仓库内 skill
+- skill 不应再各自实现一套 app lifecycle；统一调用 `python3 Tests/Harness/clawbarctl.py ...`
 
 ## 当前清单
 
@@ -28,12 +25,14 @@
 - `clawbar-dev-loop`
 - `clawbar-menubar-screenshot`
 - `clawbar-menubar-verify`
+- `clawbar-openclaw-logs`
 
-这些 skill 已按当前项目使用场景分类：
+分类：
 
 - `development`
 - `visual-regression`
 - `ui-verification`
+- `diagnostics`
 
 ## 管理命令
 
@@ -53,6 +52,17 @@ python3 Scripts/project_skills.py sync <skill-name>
 - `list`：查看 manifest 中登记的项目 skill
 - `check`：检查 manifest 和本地 `.agents/skills/` 是否一致
 - `sync`：把 manifest 中标记为 `vendored` 的外部 skill 复制进仓库
+
+## 当前执行面约定
+
+skills 负责告诉 Agent “什么时候做什么”，但不再各自维护底层运行入口。当前统一约定：
+
+- 开发循环：`python3 Tests/Harness/clawbarctl.py app dev-loop`
+- app 启动/停止/重启：`python3 Tests/Harness/clawbarctl.py app ...`
+- unit / smoke / integration：`python3 Tests/Harness/clawbarctl.py test ...`
+- diagnostics：`python3 Tests/Harness/clawbarctl.py logs collect`
+
+这样做的目的不是减少 skill，而是让 skill 的说明层和脚本层都能复用同一套 artifact、日志、状态追踪布局。
 
 ## 新增外部 Skill 的流程
 
@@ -88,3 +98,4 @@ python3 Scripts/project_skills.py sync <skill-name>
 - 可复制：换一台机器也能按 manifest 补齐
 - 可审计：不会再默认依赖个人全局目录里的隐式 skill
 - 可演进：后续新增 skill 时，有固定入口和同步流程
+- 可读：skill 文档和实际执行入口不再漂移，Agent 能直接从文档跳到统一 harness

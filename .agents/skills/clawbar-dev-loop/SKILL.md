@@ -10,20 +10,20 @@ Run the repository's dev loop wrapper from this skill when the user wants a fast
 ## Workflow
 
 1. Work from the repository root of the current `clawbar` checkout.
-2. Start the loop with `./.agents/skills/clawbar-dev-loop/scripts/run-dev-loop.swift`.
+2. Start the loop with `python3 Tests/Harness/clawbarctl.py app dev-loop`.
 3. Keep the session open while editing. The loop watches `Package.swift`, `Sources/`, and `Tests/`.
 4. Stop the loop with `Ctrl+C` when the user is done.
 
 ## Behavior
 
-- Uses a Swift script and `Process` orchestration for build, launch, stop, and polling work.
+- Uses the unified harness under `Tests/Harness/` for build, launch, stop, and polling work.
 - Rebuild the app after every detected file change.
 - Restart `Clawbar` only when the build succeeds.
-- Leave the previously running app untouched when the build fails.
-- Write runner logs to `Artifacts/DevRunner/clawbar-dev.log`.
+- Track the current app process in `Artifacts/Harness/State/app-state.json`.
+- Write runner logs and app logs under `Artifacts/Harness/Runs/<timestamp>-app-dev-loop/`.
 
 ## Notes
 
 - This is automatic restart, not runtime hot reload.
-- To change the polling interval, prefix the command with `CLAWBAR_DEV_POLL_INTERVAL=<seconds>`.
-- If the user reports that the app did not relaunch, inspect `Artifacts/DevRunner/clawbar-dev.log` first.
+- To change the polling interval, pass `--poll-interval <seconds>`.
+- If the user reports that the app did not relaunch, inspect the latest `Artifacts/Harness/Runs/*-app-dev-loop/` directory first.

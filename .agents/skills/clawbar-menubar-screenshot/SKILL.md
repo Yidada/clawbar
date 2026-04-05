@@ -17,6 +17,7 @@ Use this skill when you need a reproducible screenshot of the live `Clawbar` men
 
 - Builds `Clawbar` by default before capturing.
 - Restarts `Clawbar` into a clean single-instance state by default before capturing.
+- Uses `python3 Tests/Harness/clawbarctl.py app start --mode ui ...` to make app startup, state injection, and logs consistent with the rest of the repo.
 - Opens the menu bar item via macOS Accessibility APIs.
 - Saves a full-screen screenshot artifact.
 
@@ -38,4 +39,5 @@ Use this skill when you need a reproducible screenshot of the live `Clawbar` men
 
 - This workflow requires macOS Accessibility permission so the helper can press the status item.
 - The script launches `Clawbar` in a deterministic UI test mode, with a fixed OpenClaw-installed snapshot for repeatable captures.
+- Startup logs and tracked app state live under `Artifacts/Harness/Runs/` and `Artifacts/Harness/State/`.
 - The script captures the full desktop. Crop or compare the resulting artifact separately if needed.

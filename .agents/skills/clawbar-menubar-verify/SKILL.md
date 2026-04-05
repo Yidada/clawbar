@@ -17,6 +17,7 @@ Use this skill when you need a reproducible UI check of the live `Clawbar` menu 
 
 - Builds `Clawbar` by default before verifying.
 - Restarts `Clawbar` into a clean single-instance state by default before verifying.
+- Uses `python3 Tests/Harness/clawbarctl.py app start --mode ui ...` so UI verification shares the same startup and logging flow as smoke and diagnostics runs.
 - Launches `Clawbar` in a deterministic UI test mode.
 - Opens the menu bar item via macOS Accessibility APIs.
 - Verifies the expected menu titles are present in the live popup.
@@ -35,3 +36,4 @@ Use this skill when you need a reproducible UI check of the live `Clawbar` menu 
 
 - This workflow requires macOS Accessibility permission so the helper can press and inspect the status item.
 - It is an Accessibility-driven regression check adapted to the current SwiftPM executable app shape.
+- Startup logs and tracked app state live under `Artifacts/Harness/Runs/` and `Artifacts/Harness/State/`.

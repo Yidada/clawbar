@@ -40,22 +40,6 @@ OUTPUT_ARG="${1:-}"
 
 cd "$ROOT_DIR"
 
-if [[ "${CLAWBAR_CAPTURE_BUILD:-1}" != "0" ]]; then
-    swift build >/dev/null
-fi
-
-APP_BINARY_REAL="$(
-    python3 - <<'PY'
-from pathlib import Path
-print(Path(".build/debug/Clawbar").resolve())
-PY
-)"
-
-if [[ ! -x "$APP_BINARY_REAL" ]]; then
-    echo "Expected built Clawbar binary at $APP_BINARY_REAL" >&2
-    exit 1
-fi
-
 if [[ -z "$OUTPUT_ARG" ]]; then
     OUTPUT_DIR="$ROOT_DIR/Artifacts/MenubarScreenshots"
     mkdir -p "$OUTPUT_DIR"
@@ -65,30 +49,27 @@ else
     mkdir -p "$(dirname "$OUTPUT_PATH")"
 fi
 
+HARNESS_ARGS=(
+    app start
+    --mode ui
+    --wait-seconds "$LAUNCH_WAIT"
+    --openclaw-state installed
+    --openclaw-binary-path /opt/homebrew/bin/openclaw
+    --openclaw-detail "status 已返回最近状态。"
+    --openclaw-excerpt "plugins.allow is empty; discovered non-bundled plugins."
+)
+
+if [[ "${CLAWBAR_CAPTURE_BUILD:-1}" == "0" ]]; then
+    HARNESS_ARGS+=(--no-build)
+fi
+
 if [[ "$RESTART_APP" == "1" ]]; then
-    pkill -f "$APP_BINARY_REAL" >/dev/null 2>&1 || true
-    sleep 1
-    LAUNCH_COMMAND="cd \"$ROOT_DIR\" && env CLAWBAR_UI_TEST=1 CLAWBAR_TEST_OPENCLAW_STATE=installed CLAWBAR_TEST_OPENCLAW_BINARY_PATH=/opt/homebrew/bin/openclaw CLAWBAR_TEST_OPENCLAW_DETAIL='status 已返回最近状态。' CLAWBAR_TEST_OPENCLAW_EXCERPT='plugins.allow is empty; discovered non-bundled plugins.' \"$APP_BINARY_REAL\""
-    osascript - "$LAUNCH_COMMAND" <<'APPLESCRIPT' >/dev/null
-on run argv
-    tell application "Terminal"
-        activate
-        do script (item 1 of argv)
-    end tell
-end run
-APPLESCRIPT
-    sleep "$LAUNCH_WAIT"
-elif ! pgrep -f "$APP_BINARY_REAL" >/dev/null 2>&1; then
-    LAUNCH_COMMAND="cd \"$ROOT_DIR\" && env CLAWBAR_UI_TEST=1 CLAWBAR_TEST_OPENCLAW_STATE=installed CLAWBAR_TEST_OPENCLAW_BINARY_PATH=/opt/homebrew/bin/openclaw CLAWBAR_TEST_OPENCLAW_DETAIL='status 已返回最近状态。' CLAWBAR_TEST_OPENCLAW_EXCERPT='plugins.allow is empty; discovered non-bundled plugins.' \"$APP_BINARY_REAL\""
-    osascript - "$LAUNCH_COMMAND" <<'APPLESCRIPT' >/dev/null
-on run argv
-    tell application "Terminal"
-        activate
-        do script (item 1 of argv)
-    end tell
-end run
-APPLESCRIPT
-    sleep "$LAUNCH_WAIT"
+    HARNESS_ARGS+=(--restart)
+fi
+
+STATUS_OUTPUT="$(python3 "$ROOT_DIR/Tests/Harness/clawbarctl.py" app status 2>/dev/null || true)"
+if [[ "$RESTART_APP" == "1" || "$STATUS_OUTPUT" != *"state: running"* ]]; then
+    python3 "$ROOT_DIR/Tests/Harness/clawbarctl.py" "${HARNESS_ARGS[@]}" >/dev/null
 fi
 
 CENTER="$(

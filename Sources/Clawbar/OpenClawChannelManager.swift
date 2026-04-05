@@ -1,11 +1,5 @@
 import Foundation
 
-struct OpenClawChannelCommandResult: Equatable, Sendable {
-    let output: String
-    let exitStatus: Int32
-    let timedOut: Bool
-}
-
 enum WeChatFlowKind: String, Sendable {
     case install
     case bind
@@ -133,7 +127,7 @@ final class OpenClawChannelManager: ObservableObject {
 
     init(
         environmentProvider: @escaping EnvironmentProvider = { ProcessInfo.processInfo.environment },
-        runCommand: @escaping CommandRunner = OpenClawChannelManager.runCommand
+        runCommand: @escaping CommandRunner = ChannelCommandSupport.runCommand
     ) {
         self.environmentProvider = environmentProvider
         self.runCommand = runCommand
@@ -199,19 +193,19 @@ final class OpenClawChannelManager: ObservableObject {
         case .pluginPresentButNotConfigured:
             return "当前 status 结果显示微信能力已存在，但还没有完成扫码绑定。"
         case .pluginConfiguredGatewayReachable(let accountLabel):
-            if let accountLabel = accountLabel?.trimmedNonEmpty {
+            if let accountLabel = trimmedNonEmpty(accountLabel) {
                 return "已检测到 \(accountLabel)，并且 Gateway 当前可达。"
             }
             return "微信能力已配置，并且 Gateway 当前可达。"
         case .pluginConfiguredGatewayUnreachable(let accountLabel, let gatewayDetail):
             var segments: [String] = []
-            if let accountLabel = accountLabel?.trimmedNonEmpty {
+            if let accountLabel = trimmedNonEmpty(accountLabel) {
                 segments.append("已检测到 \(accountLabel)。")
             } else {
                 segments.append("微信能力已配置。")
             }
 
-            if let gatewayDetail = gatewayDetail?.trimmedNonEmpty {
+            if let gatewayDetail = trimmedNonEmpty(gatewayDetail) {
                 segments.append("Gateway 状态：\(gatewayDetail)")
             } else {
                 segments.append("Gateway 当前不可达。")
@@ -283,7 +277,7 @@ final class OpenClawChannelManager: ObservableObject {
     func refreshWeChatStatus() {
         guard !isRefreshing else { return }
 
-        let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let commandRunner = runCommand
         let lastKnownState = cardState.stableDerivedState
 
@@ -314,7 +308,7 @@ final class OpenClawChannelManager: ObservableObject {
     func installWeChatCapability() {
         guard !isInstalling else { return }
 
-        let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let commandRunner = runCommand
         guard let openClawBinaryPath = Self.detectBinaryPath(
             named: "openclaw",
@@ -354,7 +348,7 @@ final class OpenClawChannelManager: ObservableObject {
     func startWeChatBinding() {
         guard !isLaunchingBinding else { return }
 
-        let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let commandRunner = runCommand
         guard let openClawBinaryPath = Self.detectBinaryPath(
             named: "openclaw",
@@ -402,7 +396,7 @@ final class OpenClawChannelManager: ObservableObject {
         activeFlowKind = kind
 
         do {
-            let process = try Self.makeStreamingProcess(
+            let process = try ChannelCommandSupport.makeStreamingProcess(
                 command: kind.command,
                 environment: environment,
                 outputHandler: { [weak self] chunk in
@@ -524,19 +518,19 @@ final class OpenClawChannelManager: ObservableObject {
                 lastActionDetail = "当前 status 结果显示微信能力已存在，但还没有完成扫码绑定。"
             case .pluginConfiguredGatewayReachable(let accountLabel):
                 lastActionSummary = "微信已可用"
-                if let accountLabel = accountLabel?.trimmedNonEmpty {
+                if let accountLabel = trimmedNonEmpty(accountLabel) {
                     lastActionDetail = "已检测到 \(accountLabel)，并且 Gateway 当前可达。"
                 } else {
                     lastActionDetail = "微信能力已配置，并且 Gateway 当前可达。"
                 }
             case .pluginConfiguredGatewayUnreachable(let accountLabel, let gatewayDetail):
                 lastActionSummary = "Gateway 当前不可达"
-                if let accountLabel = accountLabel?.trimmedNonEmpty,
-                   let gatewayDetail = gatewayDetail?.trimmedNonEmpty {
+                if let accountLabel = trimmedNonEmpty(accountLabel),
+                   let gatewayDetail = trimmedNonEmpty(gatewayDetail) {
                     lastActionDetail = "已检测到 \(accountLabel)。Gateway 状态：\(gatewayDetail)"
-                } else if let accountLabel = accountLabel?.trimmedNonEmpty {
+                } else if let accountLabel = trimmedNonEmpty(accountLabel) {
                     lastActionDetail = "已检测到 \(accountLabel)，但 Gateway 当前不可达。"
-                } else if let gatewayDetail = gatewayDetail?.trimmedNonEmpty {
+                } else if let gatewayDetail = trimmedNonEmpty(gatewayDetail) {
                     lastActionDetail = "微信能力已配置。Gateway 状态：\(gatewayDetail)"
                 } else {
                     lastActionDetail = "微信能力已配置，但 Gateway 当前不可达。"
@@ -579,14 +573,11 @@ final class OpenClawChannelManager: ObservableObject {
         environment: [String: String],
         runCommand: CommandRunner
     ) -> String? {
-        let result = runCommand("/bin/zsh", ["-lc", "command -v \(command)"], environment, 3)
-        if !result.timedOut,
-           result.exitStatus == 0,
-           let path = OpenClawInstaller.parseDetectedBinaryPath(result.output) {
-            return path
-        }
-
-        return nil
+        ChannelCommandSupport.detectBinaryPath(
+            named: command,
+            environment: environment,
+            runCommand: runCommand
+        )
     }
 
     private nonisolated static func queryWeixinStatus(
@@ -620,15 +611,15 @@ final class OpenClawChannelManager: ObservableObject {
 
     nonisolated static func parseStatusPayload(from output: String) -> OpenClawWeixinStatusPayload? {
         guard let jsonString = extractTrailingJSONObjectString(from: output),
-              let payload = parseJSONObject(from: jsonString) else {
+              let payload = ChannelCommandSupport.parseJSONObject(from: jsonString) else {
             return nil
         }
 
         let gateway = (payload["gateway"] as? [String: Any]).flatMap { gateway -> OpenClawWeixinStatusPayload.GatewaySnapshot? in
             OpenClawWeixinStatusPayload.GatewaySnapshot(
                 reachable: gateway["reachable"] as? Bool,
-                error: (gateway["error"] as? String)?.trimmedNonEmpty,
-                url: (gateway["url"] as? String)?.trimmedNonEmpty
+                error: trimmedNonEmpty(gateway["error"] as? String),
+                url: trimmedNonEmpty(gateway["url"] as? String)
             )
         } ?? OpenClawWeixinStatusPayload.GatewaySnapshot(
             reachable: nil,
@@ -640,7 +631,7 @@ final class OpenClawChannelManager: ObservableObject {
             OpenClawWeixinStatusPayload.GatewayServiceSnapshot(
                 installed: gatewayService["installed"] as? Bool,
                 loaded: gatewayService["loaded"] as? Bool,
-                runtimeShort: (gatewayService["runtimeShort"] as? String)?.trimmedNonEmpty
+                runtimeShort: trimmedNonEmpty(gatewayService["runtimeShort"] as? String)
             )
         } ?? OpenClawWeixinStatusPayload.GatewayServiceSnapshot(
             installed: nil,
@@ -649,7 +640,7 @@ final class OpenClawChannelManager: ObservableObject {
         )
 
         return OpenClawWeixinStatusPayload(
-            runtimeVersion: (payload["runtimeVersion"] as? String)?.trimmedNonEmpty,
+            runtimeVersion: trimmedNonEmpty(payload["runtimeVersion"] as? String),
             channelSummary: payload["channelSummary"] as? [String] ?? [],
             gateway: gateway,
             gatewayService: gatewayService
@@ -683,7 +674,7 @@ final class OpenClawChannelManager: ObservableObject {
         for index in candidateIndices.reversed() {
             let candidate = String(trimmed[index...]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !candidate.isEmpty else { continue }
-            if parseJSONObject(from: candidate) != nil {
+            if ChannelCommandSupport.parseJSONObject(from: candidate) != nil {
                 return candidate
             }
         }
@@ -714,7 +705,7 @@ final class OpenClawChannelManager: ObservableObject {
                     let normalized = nextTrimmed.hasPrefix("-")
                         ? String(nextTrimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
                         : nextTrimmed
-                    accountLabel = normalized.trimmedNonEmpty
+                    accountLabel = trimmedNonEmpty(normalized)
                 }
                 nextIndex += 1
             }
@@ -726,7 +717,7 @@ final class OpenClawChannelManager: ObservableObject {
     }
 
     nonisolated static func parseRuntimeSnapshot(from output: String) -> WeChatRuntimeSnapshot {
-        let latestQRCodeURL = latestMatch(
+        let latestQRCodeURL = ChannelCommandSupport.latestMatch(
             pattern: #"https://liteapp\.weixin\.qq\.com/q/\S+"#,
             in: output
         )
@@ -744,15 +735,6 @@ final class OpenClawChannelManager: ObservableObject {
         )
     }
 
-    private nonisolated static func latestMatch(pattern: String, in text: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        let matches = regex.matches(in: text, range: range)
-        guard let result = matches.last, let matchRange = Range(result.range, in: text) else { return nil }
-        return String(text[matchRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private nonisolated static func makeJSONParseFailureDetail(from output: String) -> String {
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "openclaw status --json 没有返回任何可解析内容。"
@@ -762,47 +744,7 @@ final class OpenClawChannelManager: ObservableObject {
     }
 
     private nonisolated static func extractFailureDetail(from output: String) -> String? {
-        let candidates = output
-            .split(separator: "\n")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .reversed()
-
-        for line in candidates {
-            if line.contains("失败") || line.contains("Error") || line.contains("error") || line.contains("未完成") {
-                return line
-            }
-        }
-
-        return candidates.first
-    }
-
-    private nonisolated static func makeStreamingProcess(
-        command: String,
-        environment: [String: String],
-        outputHandler: @escaping @Sendable (String) -> Void,
-        terminationHandler: @escaping @Sendable (Int32) -> Void
-    ) throws -> Process {
-        let process = Process()
-        let outputPipe = Pipe()
-
-        outputPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            outputHandler(sanitizeChannelOutput(data))
-        }
-
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-lc", command]
-        process.environment = environment
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-        process.terminationHandler = { process in
-            outputPipe.fileHandleForReading.readabilityHandler = nil
-            terminationHandler(process.terminationStatus)
-        }
-
-        return process
+        ChannelCommandSupport.extractFailureDetail(from: output)
     }
 
     nonisolated static func makeTerminalLaunchArguments(shellCommand: String) -> [String] {
@@ -815,80 +757,10 @@ final class OpenClawChannelManager: ObservableObject {
         ]
     }
 
-    private nonisolated static func parseJSONObject(from output: String) -> [String: Any]? {
-        guard let data = output.data(using: .utf8) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    }
-
     private nonisolated static func appleScriptStringLiteral(_ value: String) -> String {
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
     }
-
-    private nonisolated static func runCommand(
-        _ executablePath: String,
-        _ arguments: [String],
-        _ environment: [String: String],
-        _ timeout: TimeInterval
-    ) -> OpenClawChannelCommandResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
-
-        do {
-            try process.run()
-        } catch {
-            return OpenClawChannelCommandResult(
-                output: error.localizedDescription,
-                exitStatus: 1,
-                timedOut: false
-            )
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        var timedOut = false
-
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-
-        if process.isRunning {
-            timedOut = true
-            process.terminate()
-            process.waitUntilExit()
-        }
-
-        let output = sanitizeChannelOutput(outputPipe.fileHandleForReading.readDataToEndOfFile())
-        return OpenClawChannelCommandResult(
-            output: output,
-            exitStatus: process.terminationStatus,
-            timedOut: timedOut
-        )
-    }
-}
-
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private func sanitizeChannelOutput(_ data: Data) -> String {
-    let raw = String(decoding: data, as: UTF8.self)
-    let pattern = #"\u{001B}\[[0-9;?]*[ -/]*[@-~]"#
-
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
-        return raw
-    }
-
-    let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
-    return regex.stringByReplacingMatches(in: raw, options: [], range: range, withTemplate: "")
 }

@@ -36,7 +36,7 @@ enum ChannelKind: String, CaseIterable, Identifiable {
     var descriptionText: String {
         switch self {
         case .feishu:
-            "Webhook、应用凭证和群聊路由。"
+            "官方插件安装、授权、诊断和启用。"
         case .wechat:
             "打开后按官方流程安装并扫码连接。"
         }
@@ -45,11 +45,17 @@ enum ChannelKind: String, CaseIterable, Identifiable {
 
 struct ChannelsManagementView: View {
     @AppStorage("clawbar.channels.default") private var defaultChannelRawValue = ChannelKind.feishu.rawValue
-    @AppStorage("clawbar.channels.feishu.enabled") private var feishuEnabled = false
-    @AppStorage("clawbar.channels.feishu.endpoint") private var feishuEndpoint = ""
     @AppStorage("clawbar.channels.wechat.enabled") private var wechatEnabled = false
+    @AppStorage("clawbar.channels.feishu.logsExpanded") private var feishuLogsExpanded = false
+
+    @StateObject private var feishuManager = OpenClawFeishuChannelManager.shared
     @StateObject private var wechatManager = OpenClawChannelManager.shared
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openURL) private var openURL
+
+    @State private var useExistingFeishuApp = false
+    @State private var feishuAppID = ""
+    @State private var feishuAppSecret = ""
 
     private var theme: ManagementTheme {
         ManagementTheme(colorScheme: colorScheme)
@@ -61,7 +67,7 @@ struct ChannelsManagementView: View {
     }
 
     private var enabledCount: Int {
-        [feishuEnabled, wechatEnabled].filter { $0 }.count
+        [feishuManager.snapshot.channelEnabled, wechatEnabled].filter { $0 }.count
     }
 
     private var wechatToggleBinding: Binding<Bool> {
@@ -87,6 +93,25 @@ struct ChannelsManagementView: View {
         )
     }
 
+    private var feishuToggleBinding: Binding<Bool> {
+        Binding(
+            get: { feishuManager.isEnabled },
+            set: { newValue in
+                if newValue {
+                    guard feishuCanEnableFromToggle else { return }
+                    feishuManager.enable(using: feishuCredentialsOrNil)
+                } else {
+                    feishuManager.disable()
+                }
+            }
+        )
+    }
+
+    private var feishuCredentialsOrNil: FeishuAppCredentials? {
+        let credentials = FeishuAppCredentials(appID: feishuAppID, appSecret: feishuAppSecret)
+        return useExistingFeishuApp && credentials.isComplete ? credentials : nil
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(
@@ -108,6 +133,7 @@ struct ChannelsManagementView: View {
         .frame(minWidth: 760, minHeight: 760)
         .task {
             wechatManager.refreshWeChatStatus()
+            feishuManager.refreshStatus()
         }
     }
 
@@ -117,7 +143,7 @@ struct ChannelsManagementView: View {
                 Text("Channels 管理")
                     .font(.system(size: 30, weight: .semibold))
 
-                Text("集中维护飞书和微信通道；微信会按官方安装器流程完成安装、扫码和接入。")
+                Text("集中维护飞书和微信通道；飞书会按官方插件 CLI 的安装、配置和诊断流程图形化引导。")
                     .font(.subheadline)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -150,6 +176,7 @@ struct ChannelsManagementView: View {
             HStack(alignment: .top, spacing: 12) {
                 overviewMetric(title: "默认回传 Channel", value: defaultChannel.displayName)
                 overviewMetric(title: "已启用", value: "\(enabledCount) / \(ChannelKind.allCases.count)")
+                overviewMetric(title: "飞书状态", value: feishuManager.statusLabel)
                 overviewMetric(title: "微信状态", value: wechatManager.statusLabel)
             }
 
@@ -186,27 +213,166 @@ struct ChannelsManagementView: View {
     }
 
     private var feishuCard: some View {
-        channelShell(kind: .feishu, enabled: $feishuEnabled) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("接入备注 / Endpoint")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.secondaryText)
+        channelShell(
+            kind: .feishu,
+            enabled: feishuToggleBinding,
+            toggleDisabled: feishuToggleDisabled
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text("官方 Feishu 插件")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ChannelKind.feishu.accentColor)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(ChannelKind.feishu.accentColor.opacity(0.14), in: Capsule())
 
-                TextField("", text: $feishuEndpoint, prompt: Text("例如 Feishu App ID / Webhook 地址"))
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Text(feishuManager.statusLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(feishuStatusTone)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("当前阶段")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.secondaryText)
+
+                    Text(feishuManager.snapshot.summary)
+                        .font(.title3.weight(.semibold))
+
+                    Text(feishuManager.snapshot.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                if let continueURL = feishuManager.snapshot.continueURL,
+                   let url = URL(string: continueURL) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("浏览器继续操作")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.secondaryText)
+
+                        Link("打开官方配置链接", destination: url)
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(14)
+                    .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
+                if feishuManager.snapshot.stage == .install || (!feishuManager.snapshot.pluginInstalled && useExistingFeishuApp) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(useExistingFeishuApp ? "改为自动创建应用" : "使用已有飞书应用") {
+                            useExistingFeishuApp.toggle()
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption.weight(.semibold))
+
+                        if useExistingFeishuApp {
+                            VStack(alignment: .leading, spacing: 8) {
+                                TextField("App ID，例如 cli_xxx", text: $feishuAppID)
+                                    .textFieldStyle(.plain)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(theme.inputBorder, lineWidth: 1)
+                                    )
+
+                                SecureField("App Secret", text: $feishuAppSecret)
+                                    .textFieldStyle(.plain)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(theme.inputBorder, lineWidth: 1)
+                                    )
+                            }
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button(feishuManager.primaryActionTitle) {
+                        if feishuManager.snapshot.stage == .configure,
+                           let continueURL = feishuManager.snapshot.continueURL,
+                           let url = URL(string: continueURL) {
+                            openURL(url)
+                        } else {
+                            feishuManager.runPrimaryAction(existingAppCredentials: feishuCredentialsOrNil)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(ChannelKind.feishu.accentColor)
+                    .disabled(feishuPrimaryActionDisabled)
+
+                    Button("刷新状态") {
+                        feishuManager.refreshStatus()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(feishuManager.isBusy)
+                }
+
+                DisclosureGroup("展开日志", isExpanded: $feishuLogsExpanded) {
+                    ScrollView {
+                        Text(trimmedNonEmpty(feishuManager.lastCommandOutput) ?? "暂无日志")
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(12)
+                    }
+                    .frame(minHeight: 120, maxHeight: 220)
+                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(theme.inputBorder, lineWidth: 1)
                     )
-            }
+                    .padding(.top, 6)
+                }
 
-            Text(feishuEnabled ? "当前 Channel 已启用，可作为 OpenClaw 的消息入口候选。" : "当前 Channel 未启用，只保留接入备注。")
-                .font(.caption)
-                .foregroundStyle(theme.secondaryText)
+                if feishuManager.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
         }
+    }
+
+    private var feishuStatusTone: Color {
+        switch feishuManager.snapshot.stage {
+        case .ready:
+            return ChannelKind.feishu.accentColor
+        case .diagnose, .preflight:
+            return .orange
+        case .install, .configure, .verify:
+            return theme.secondaryText
+        }
+    }
+
+    private var feishuPrimaryActionDisabled: Bool {
+        if feishuManager.isBusy {
+            return true
+        }
+
+        if useExistingFeishuApp,
+           feishuManager.primaryAction == .enable,
+           feishuCredentialsOrNil == nil {
+            return true
+        }
+
+        return false
+    }
+
+    private var feishuCanEnableFromToggle: Bool {
+        feishuManager.canStartEnableFlow && !feishuPrimaryActionDisabled
+    }
+
+    private var feishuToggleDisabled: Bool {
+        feishuManager.isBusy || (!feishuManager.isEnabled && !feishuCanEnableFromToggle)
     }
 
     private var wechatCard: some View {
@@ -307,7 +473,7 @@ struct ChannelsManagementView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(ChannelKind.wechat.accentColor)
                         .disabled(wechatManager.isBusy)
-                        
+
                         Button("刷新状态") {
                             wechatManager.refreshWeChatStatus()
                         }
@@ -442,6 +608,7 @@ struct ChannelsManagementView: View {
     private func channelShell<Content: View>(
         kind: ChannelKind,
         enabled: Binding<Bool>,
+        toggleDisabled: Bool = false,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -469,6 +636,7 @@ struct ChannelsManagementView: View {
                 Toggle("", isOn: enabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .disabled(toggleDisabled)
             }
 
             content()
@@ -481,5 +649,4 @@ struct ChannelsManagementView: View {
         )
         .shadow(color: theme.shadowColor, radius: colorScheme == .dark ? 0 : 18, y: colorScheme == .dark ? 0 : 8)
     }
-
 }

@@ -143,10 +143,10 @@ struct OpenClawInstallerOverride: Equatable, Sendable {
             let binaryPath = environment["CLAWBAR_TEST_OPENCLAW_BINARY_PATH"] ?? "/opt/homebrew/bin/openclaw"
             let snapshot = OpenClawStatusSnapshot(
                 title: environment["CLAWBAR_TEST_OPENCLAW_TITLE"] ?? "OpenClaw 已安装",
-                detail: environment["CLAWBAR_TEST_OPENCLAW_DETAIL"] ?? "status 已返回最近状态。",
-                excerpt: environment["CLAWBAR_TEST_OPENCLAW_EXCERPT"],
+                detail: environment["CLAWBAR_TEST_OPENCLAW_DETAIL"] ?? "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+                excerpt: environment["CLAWBAR_TEST_OPENCLAW_EXCERPT"] ?? "OpenClaw 2026.4.2",
                 binaryPath: OpenClawInstaller.displayBinaryPath(binaryPath),
-                healthSnapshot: .placeholderInstalled
+                healthSnapshot: .deterministicInstalled
             )
             return Self(state: .installed(snapshot))
         default:
@@ -210,6 +210,7 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let statusArguments = ["status", "--json"]
     nonisolated static let providerStatusArguments = ["models", "status", "--json"]
     nonisolated static let gatewayStatusArguments = ["gateway", "status", "--json", "--no-probe"]
+    nonisolated static let statusCommandTimeout: TimeInterval = 30
 
     @Published private(set) var isInstalling = false
     @Published private(set) var isUninstalling = false
@@ -455,7 +456,7 @@ final class OpenClawInstaller: ObservableObject {
 
         let detail: String
         if statusResult.timedOut {
-            detail = "openclaw status --json 未在 5 秒内完成；当前展示最近一次可推断的健康视图。"
+            detail = "openclaw status --json 未在 30 秒内完成；当前展示最近一次可推断的健康视图。"
         } else if statusPayload == nil {
             detail = "openclaw status --json 未返回可解析结果；当前展示本地可推断的健康视图。"
         } else {
@@ -914,7 +915,7 @@ final class OpenClawInstaller: ObservableObject {
             binaryPath,
             statusArguments,
             environment,
-            5
+            statusCommandTimeout
         )
         let providerSnapshot = fetchProviderStatusSnapshot(binaryPath: binaryPath, environment: environment)
         let gatewaySnapshot = fetchGatewayStatusSnapshot(binaryPath: binaryPath, environment: environment)

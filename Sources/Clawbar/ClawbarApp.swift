@@ -35,7 +35,7 @@ struct ClawbarApp: App {
                 .labelStyle(.iconOnly)
                 .accessibilityLabel(Text(configuration.menuBarTitle))
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
     }
 
     private var installScene: some Scene {

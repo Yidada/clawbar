@@ -7,8 +7,11 @@ final class MenuContentModelTests: XCTestCase {
             appName: "Test",
             menuBarTitle: "Bar",
             systemImageName: "star",
-            helloTitle: "Hi",
-            helloSubtitle: "Subtitle",
+            menuInstalledTitle: "Installed",
+            menuLoadingSubtitle: "Loading",
+            menuMissingTitle: "Missing",
+            menuMissingSubtitle: "Missing subtitle",
+            menuRefreshingStatusLabel: "Refreshing",
             installLabel: "Install OpenClaw",
             uninstallLabel: "Uninstall OpenClaw",
             tuiDebugLabel: "Launch TUI",
@@ -28,8 +31,11 @@ final class MenuContentModelTests: XCTestCase {
 
         let model = MenuContentModel.makeDefault(configuration: configuration)
 
-        XCTAssertEqual(model.title, "Hi")
-        XCTAssertEqual(model.subtitle, "Subtitle")
+        XCTAssertEqual(model.installedTitle, "Installed")
+        XCTAssertEqual(model.loadingSubtitle, "Loading")
+        XCTAssertEqual(model.missingTitle, "Missing")
+        XCTAssertEqual(model.missingSubtitle, "Missing subtitle")
+        XCTAssertEqual(model.refreshingStatusLabel, "Refreshing")
         XCTAssertEqual(model.installButtonTitle, "Install OpenClaw")
         XCTAssertEqual(model.uninstallButtonTitle, "Uninstall OpenClaw")
         XCTAssertEqual(model.tuiDebugButtonTitle, "Launch TUI")
@@ -41,17 +47,17 @@ final class MenuContentModelTests: XCTestCase {
     func testAccessibilityIdentifierUsesStablePrefix() {
         let model = MenuContentModel.makeDefault()
 
-        XCTAssertEqual(model.accessibilityIdentifier(for: .title), "clawbar.menu.title")
-        XCTAssertEqual(model.accessibilityIdentifier(for: .subtitle), "clawbar.menu.subtitle")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .headerTitle), "clawbar.menu.headerTitle")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .headerSubtitle), "clawbar.menu.headerSubtitle")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .headerMetadata), "clawbar.menu.headerMetadata")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .binaryPath), "clawbar.menu.binaryPath")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .providerRow), "clawbar.menu.providerRow")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .gatewayRow), "clawbar.menu.gatewayRow")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .channelRow), "clawbar.menu.channelRow")
         XCTAssertEqual(model.accessibilityIdentifier(for: .installButton), "clawbar.menu.installButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .uninstallButton), "clawbar.menu.uninstallButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .tuiDebugButton), "clawbar.menu.tuiDebugButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .managementButton), "clawbar.menu.managementButton")
-        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawSection), "clawbar.menu.openClawSection")
-        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawTitle), "clawbar.menu.openClawTitle")
-        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawBinaryPath), "clawbar.menu.openClawBinaryPath")
-        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawDetail), "clawbar.menu.openClawDetail")
-        XCTAssertEqual(model.accessibilityIdentifier(for: .openClawExcerpt), "clawbar.menu.openClawExcerpt")
         XCTAssertEqual(model.accessibilityIdentifier(for: .quitButton), "clawbar.menu.quitButton")
     }
 }

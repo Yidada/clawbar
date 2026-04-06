@@ -47,8 +47,8 @@ HARNESS_ARGS=(
 if [[ "$VERIFY_STATE" == "installed" ]]; then
     HARNESS_ARGS+=(
         --openclaw-binary-path /opt/homebrew/bin/openclaw
-        --openclaw-detail "status 已返回最近状态。"
-        --openclaw-excerpt "plugins.allow is empty; discovered non-bundled plugins."
+        --openclaw-detail "Provider 已配置 · Gateway 可达 · Channel 已就绪"
+        --openclaw-excerpt "OpenClaw 2026.4.2"
     )
 fi
 
@@ -73,26 +73,27 @@ sleep "$OPEN_WAIT"
 
 VERIFY_ARGS=(
     --app-name "$APP_NAME"
-    --item-title "$ITEM_TITLE"
-    --expect "Hello World"
-    --expect "This is the smallest possible Clawbar scaffold."
+    --expect "OpenClaw"
     --expect "Settings"
     --expect "Quit"
+    --expect "Provider"
+    --expect "Gateway"
+    --expect "Channel"
 )
 
 if [[ "$VERIFY_STATE" == "installed" ]]; then
     VERIFY_ARGS+=(
-        --expect "OpenClaw"
         --expect "/opt/homebrew/bin/openclaw"
-        --expect "status 已返回最近状态。"
-        --expect "plugins.allow is empty; discovered non-bundled plugins."
-        --expect "启动 TUI 调试终端"
+        --expect "Provider 已配置 · Gateway 可达 · Channel 已就绪"
+        --expect "OpenClaw 2026.4.2"
+        --expect "启动 TUI"
         --expect "卸载 OpenClaw"
     )
 else
     VERIFY_ARGS+=(
+        --expect "OpenClaw 未安装"
         --expect "安装 OpenClaw"
     )
 fi
 
-swift "$SKILL_DIR/scripts/verify_menu.swift" "${VERIFY_ARGS[@]}"
+swift "$SKILL_DIR/scripts/verify_popup.swift" "${VERIFY_ARGS[@]}"

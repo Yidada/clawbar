@@ -1,21 +1,24 @@
 public enum MenuContentElement: String, Equatable, Sendable {
-    case title
-    case subtitle
+    case headerTitle
+    case headerSubtitle
+    case headerMetadata
+    case binaryPath
+    case providerRow
+    case gatewayRow
+    case channelRow
     case installButton
     case uninstallButton
     case tuiDebugButton
     case managementButton
-    case openClawSection
-    case openClawTitle
-    case openClawBinaryPath
-    case openClawDetail
-    case openClawExcerpt
     case quitButton
 }
 
 public struct MenuContentModel: Equatable, Sendable {
-    public let title: String
-    public let subtitle: String
+    public let installedTitle: String
+    public let loadingSubtitle: String
+    public let missingTitle: String
+    public let missingSubtitle: String
+    public let refreshingStatusLabel: String
     public let installButtonTitle: String
     public let uninstallButtonTitle: String
     public let tuiDebugButtonTitle: String
@@ -24,8 +27,11 @@ public struct MenuContentModel: Equatable, Sendable {
     public let width: Double
 
     public init(
-        title: String,
-        subtitle: String,
+        installedTitle: String,
+        loadingSubtitle: String,
+        missingTitle: String,
+        missingSubtitle: String,
+        refreshingStatusLabel: String,
         installButtonTitle: String,
         uninstallButtonTitle: String,
         tuiDebugButtonTitle: String,
@@ -33,8 +39,11 @@ public struct MenuContentModel: Equatable, Sendable {
         quitButtonTitle: String,
         width: Double
     ) {
-        self.title = title
-        self.subtitle = subtitle
+        self.installedTitle = installedTitle
+        self.loadingSubtitle = loadingSubtitle
+        self.missingTitle = missingTitle
+        self.missingSubtitle = missingSubtitle
+        self.refreshingStatusLabel = refreshingStatusLabel
         self.installButtonTitle = installButtonTitle
         self.uninstallButtonTitle = uninstallButtonTitle
         self.tuiDebugButtonTitle = tuiDebugButtonTitle
@@ -45,8 +54,11 @@ public struct MenuContentModel: Equatable, Sendable {
 
     public static func makeDefault(configuration: AppConfiguration = .makeDefault()) -> Self {
         Self(
-            title: configuration.helloTitle,
-            subtitle: configuration.helloSubtitle,
+            installedTitle: configuration.menuInstalledTitle,
+            loadingSubtitle: configuration.menuLoadingSubtitle,
+            missingTitle: configuration.menuMissingTitle,
+            missingSubtitle: configuration.menuMissingSubtitle,
+            refreshingStatusLabel: configuration.menuRefreshingStatusLabel,
             installButtonTitle: configuration.installLabel,
             uninstallButtonTitle: configuration.uninstallLabel,
             tuiDebugButtonTitle: configuration.tuiDebugLabel,

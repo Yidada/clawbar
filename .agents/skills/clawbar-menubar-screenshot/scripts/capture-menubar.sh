@@ -33,8 +33,8 @@ APP_NAME="${CLAWBAR_CAPTURE_APP_NAME:-Clawbar}"
 ITEM_TITLE="${CLAWBAR_CAPTURE_ITEM_TITLE:-Clawbar}"
 LAUNCH_WAIT="${CLAWBAR_CAPTURE_LAUNCH_WAIT:-2}"
 OPEN_WAIT="${CLAWBAR_CAPTURE_OPEN_WAIT:-1}"
-REGION_WIDTH="${CLAWBAR_CAPTURE_REGION_WIDTH:-420}"
-REGION_HEIGHT="${CLAWBAR_CAPTURE_REGION_HEIGHT:-520}"
+REGION_WIDTH="${CLAWBAR_CAPTURE_REGION_WIDTH:-440}"
+REGION_HEIGHT="${CLAWBAR_CAPTURE_REGION_HEIGHT:-600}"
 RESTART_APP="${CLAWBAR_CAPTURE_RESTART:-1}"
 OUTPUT_ARG="${1:-}"
 
@@ -55,8 +55,8 @@ HARNESS_ARGS=(
     --wait-seconds "$LAUNCH_WAIT"
     --openclaw-state installed
     --openclaw-binary-path /opt/homebrew/bin/openclaw
-    --openclaw-detail "status 已返回最近状态。"
-    --openclaw-excerpt "plugins.allow is empty; discovered non-bundled plugins."
+    --openclaw-detail "Provider 已配置 · Gateway 可达 · Channel 已就绪"
+    --openclaw-excerpt "OpenClaw 2026.4.2"
 )
 
 if [[ "${CLAWBAR_CAPTURE_BUILD:-1}" == "0" ]]; then

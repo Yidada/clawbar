@@ -8,10 +8,13 @@ final class AppConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.appName, "Clawbar")
         XCTAssertEqual(configuration.menuBarTitle, "Clawbar")
         XCTAssertEqual(configuration.systemImageName, "hand.wave.fill")
-        XCTAssertEqual(configuration.helloTitle, "Hello World")
+        XCTAssertEqual(configuration.menuInstalledTitle, "OpenClaw")
+        XCTAssertEqual(configuration.menuLoadingSubtitle, "正在读取本机状态…")
+        XCTAssertEqual(configuration.menuMissingTitle, "OpenClaw 未安装")
+        XCTAssertEqual(configuration.menuMissingSubtitle, "安装后即可在此查看 Provider、Gateway 和 Channel 摘要。")
         XCTAssertEqual(configuration.installLabel, "安装 OpenClaw")
         XCTAssertEqual(configuration.uninstallLabel, "卸载 OpenClaw")
-        XCTAssertEqual(configuration.tuiDebugLabel, "启动 TUI 调试终端")
+        XCTAssertEqual(configuration.tuiDebugLabel, "启动 TUI")
         XCTAssertEqual(configuration.applicationLabel, "Settings")
         XCTAssertEqual(configuration.applicationWindowTitle, "Settings")
         XCTAssertEqual(configuration.providerLabel, "管理 Provider")
@@ -23,7 +26,7 @@ final class AppConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.quitLabel, "Quit")
         XCTAssertEqual(configuration.smokeTestEnvironmentVariable, "CLAWBAR_SMOKE_TEST")
         XCTAssertEqual(configuration.smokeTestWindowTitle, "Clawbar Smoke Test")
-        XCTAssertEqual(configuration.menuWidth, 320)
+        XCTAssertEqual(configuration.menuWidth, 360)
     }
 
     func testIsSmokeTestEnabledReturnsTrueWhenFlagIsSet() {

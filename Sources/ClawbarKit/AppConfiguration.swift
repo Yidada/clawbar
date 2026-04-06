@@ -2,8 +2,11 @@ public struct AppConfiguration: Equatable, Sendable {
     public let appName: String
     public let menuBarTitle: String
     public let systemImageName: String
-    public let helloTitle: String
-    public let helloSubtitle: String
+    public let menuInstalledTitle: String
+    public let menuLoadingSubtitle: String
+    public let menuMissingTitle: String
+    public let menuMissingSubtitle: String
+    public let menuRefreshingStatusLabel: String
     public let installLabel: String
     public let uninstallLabel: String
     public let tuiDebugLabel: String
@@ -24,8 +27,11 @@ public struct AppConfiguration: Equatable, Sendable {
         appName: String,
         menuBarTitle: String,
         systemImageName: String,
-        helloTitle: String,
-        helloSubtitle: String,
+        menuInstalledTitle: String,
+        menuLoadingSubtitle: String,
+        menuMissingTitle: String,
+        menuMissingSubtitle: String,
+        menuRefreshingStatusLabel: String,
         installLabel: String,
         uninstallLabel: String,
         tuiDebugLabel: String,
@@ -45,8 +51,11 @@ public struct AppConfiguration: Equatable, Sendable {
         self.appName = appName
         self.menuBarTitle = menuBarTitle
         self.systemImageName = systemImageName
-        self.helloTitle = helloTitle
-        self.helloSubtitle = helloSubtitle
+        self.menuInstalledTitle = menuInstalledTitle
+        self.menuLoadingSubtitle = menuLoadingSubtitle
+        self.menuMissingTitle = menuMissingTitle
+        self.menuMissingSubtitle = menuMissingSubtitle
+        self.menuRefreshingStatusLabel = menuRefreshingStatusLabel
         self.installLabel = installLabel
         self.uninstallLabel = uninstallLabel
         self.tuiDebugLabel = tuiDebugLabel
@@ -69,11 +78,14 @@ public struct AppConfiguration: Equatable, Sendable {
             appName: "Clawbar",
             menuBarTitle: "Clawbar",
             systemImageName: "hand.wave.fill",
-            helloTitle: "Hello World",
-            helloSubtitle: "This is the smallest possible Clawbar scaffold.",
+            menuInstalledTitle: "OpenClaw",
+            menuLoadingSubtitle: "正在读取本机状态…",
+            menuMissingTitle: "OpenClaw 未安装",
+            menuMissingSubtitle: "安装后即可在此查看 Provider、Gateway 和 Channel 摘要。",
+            menuRefreshingStatusLabel: "正在刷新状态…",
             installLabel: "安装 OpenClaw",
             uninstallLabel: "卸载 OpenClaw",
-            tuiDebugLabel: "启动 TUI 调试终端",
+            tuiDebugLabel: "启动 TUI",
             applicationLabel: "Settings",
             applicationWindowTitle: "Settings",
             providerLabel: "管理 Provider",
@@ -85,7 +97,7 @@ public struct AppConfiguration: Equatable, Sendable {
             quitLabel: "Quit",
             smokeTestEnvironmentVariable: "CLAWBAR_SMOKE_TEST",
             smokeTestWindowTitle: "Clawbar Smoke Test",
-            menuWidth: 320
+            menuWidth: 360
         )
     }
 

@@ -212,9 +212,19 @@ struct ChannelsManagementView: View {
     }
 
     private var channelsGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-            feishuCard
-            wechatCard
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+                feishuCard
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                wechatCard
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+
+            VStack(spacing: 14) {
+                feishuCard
+                wechatCard
+            }
         }
     }
 

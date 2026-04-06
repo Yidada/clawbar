@@ -8,6 +8,8 @@
   当前的自动化测试分层、统一 harness 入口、integration suite 约定、日志断言方式。
 - `2026-04-04-project-skills-reorganization.md`
   项目级 skills 的 source of truth、registry 规则，以及与统一 harness 的关系。
+- `2026-04-05-notarized-release-process.md`
+  正式 macOS 发布所需的签名、notarization、DMG 流程，以及必须准备的 GitHub secrets。
 
 ## 约定
 

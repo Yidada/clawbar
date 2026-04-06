@@ -2,6 +2,7 @@ import SwiftUI
 
 enum ProviderKind: String, CaseIterable, Identifiable {
     case openAI = "openai"
+    case openAICodex = "openai-codex"
     case anthropic = "anthropic"
     case openRouter = "openrouter"
     case liteLLM = "litellm"
@@ -14,6 +15,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .openAI:
             "OpenAI"
+        case .openAICodex:
+            "OpenAI Codex"
         case .anthropic:
             "Anthropic"
         case .openRouter:
@@ -31,6 +34,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .openAI:
             "sparkles"
+        case .openAICodex:
+            "person.crop.circle.badge.checkmark"
         case .anthropic:
             "text.bubble"
         case .openRouter:
@@ -48,6 +53,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .openAI:
             Color(red: 0.12, green: 0.62, blue: 0.49)
+        case .openAICodex:
+            Color(red: 0.07, green: 0.56, blue: 0.62)
         case .anthropic:
             Color(red: 0.76, green: 0.55, blue: 0.30)
         case .openRouter:
@@ -65,6 +72,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .openAI:
             "直接接 OpenAI 官方 API，默认模型走 openai/*。"
+        case .openAICodex:
+            "通过 OpenClaw 的 ChatGPT OAuth 登录，默认模型走 openai-codex/*。"
         case .anthropic:
             "直接接 Claude 官方 API，默认模型走 anthropic/*。"
         case .openRouter:
@@ -82,6 +91,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .openAI:
             "https://api.openai.com/v1"
+        case .openAICodex:
+            ""
         case .anthropic:
             "https://api.anthropic.com"
         case .openRouter:
@@ -99,6 +110,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         switch self {
         case .openAI:
             "gpt-5.4"
+        case .openAICodex:
+            "gpt-5.4"
         case .anthropic:
             "claude-opus-4-6"
         case .openRouter:
@@ -114,6 +127,8 @@ enum ProviderKind: String, CaseIterable, Identifiable {
 
     var apiKeyHelpText: String {
         switch self {
+        case .openAICodex:
+            "OpenClaw 会通过 ChatGPT OAuth 写入 openai-codex 认证，无需手动填写 API Key。"
         case .ollama:
             "Ollama 本地模式可留空；如果实例要求鉴权，再填写。"
         case .custom:
@@ -121,6 +136,10 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         default:
             "保存后会通过 openclaw CLI 写入或修改对应 Provider 配置。"
         }
+    }
+
+    var usesInteractiveOAuthFlow: Bool {
+        self == .openAICodex
     }
 }
 
@@ -136,15 +155,23 @@ struct ProviderManagementView: View {
         manager.draftAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
-    private var resolvedBaseURL: String {
-        manager.draftBaseURL.nonEmptyOr(manager.selectedProvider.suggestedBaseURL.nonEmptyOr("未设置"))
-    }
-
-    private var resolvedModel: String {
-        manager.draftModel.nonEmptyOr(manager.selectedProvider.suggestedModel.nonEmptyOr("未设置"))
+    private var isBusy: Bool {
+        manager.isSaving || manager.isInteractiveLoginInProgress
     }
 
     private var statusText: String {
+        if manager.isInteractiveLoginInProgress {
+            return "正在等待 ChatGPT OAuth 完成。"
+        }
+
+        if manager.selectedProvider.usesInteractiveOAuthFlow {
+            if let authState = manager.detectedAuthState, authState.isConfigured {
+                return "\(manager.selectedProvider.displayName) 当前已经有可用认证。"
+            }
+
+            return "当前还没有检测到 OpenAI Codex OAuth 认证。"
+        }
+
         if hasDraftAPIKey {
             return "检测到新的 API Key 输入，保存后会通过 openclaw CLI 落盘。"
         }
@@ -157,6 +184,10 @@ struct ProviderManagementView: View {
     }
 
     private var statusTint: Color {
+        if manager.isInteractiveLoginInProgress {
+            return manager.selectedProvider.accentColor
+        }
+
         if hasDraftAPIKey {
             return manager.selectedProvider.accentColor
         }
@@ -166,6 +197,54 @@ struct ProviderManagementView: View {
         }
 
         return Color.orange
+    }
+
+    private var statusIconName: String {
+        if isBusy {
+            return "arrow.triangle.2.circlepath"
+        }
+
+        if manager.selectedProvider.usesInteractiveOAuthFlow {
+            return manager.detectedAuthState?.isConfigured == true
+                ? "person.crop.circle.badge.checkmark"
+                : "person.crop.circle.badge.exclamationmark"
+        }
+
+        if hasDraftAPIKey {
+            return "key.fill"
+        }
+
+        return "checkmark.seal.fill"
+    }
+
+    private var primaryActionTitle: String {
+        if manager.selectedProvider.usesInteractiveOAuthFlow {
+            if manager.isInteractiveLoginInProgress {
+                return "等待登录完成..."
+            }
+
+            return manager.detectedAuthState?.isConfigured == true
+                ? "重新使用 ChatGPT 登录"
+                : "使用 ChatGPT 登录"
+        }
+
+        return "保存到 OpenClaw"
+    }
+
+    private var providerSuggestions: [String] {
+        if manager.selectedProvider.usesInteractiveOAuthFlow {
+            return [
+                "点击“使用 ChatGPT 登录”后，Clawbar 会自动打开 Terminal 并运行 OpenClaw 官方登录流程。",
+                "OpenClaw 会自动拉起浏览器；如果没有自动打开，请回到 Terminal 按提示继续。",
+                "登录成功后，Clawbar 会自动刷新状态，并将默认模型切到 openai-codex/gpt-5.4。",
+            ]
+        }
+
+        return [
+            "如果只是官方 OpenAI / Anthropic API，通常只需要填模型和 API Key。",
+            "如果是代理网关或自托管服务，优先填写 Base URL，再由页面走 `openclaw onboard --non-interactive` 生成完整配置。",
+            "Ollama 按 OpenClaw 的原生接法走 `http://127.0.0.1:11434`，不要再写 `/v1`。",
+        ]
     }
 
     var body: some View {
@@ -220,7 +299,7 @@ struct ProviderManagementView: View {
                         .fill(statusTint.opacity(0.20))
                         .frame(width: 42, height: 42)
 
-                    Image(systemName: manager.isSaving ? "arrow.triangle.2.circlepath" : (hasDraftAPIKey ? "key.fill" : "checkmark.seal.fill"))
+                    Image(systemName: statusIconName)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(statusTint)
                 }
@@ -236,7 +315,7 @@ struct ProviderManagementView: View {
 
                 Spacer()
 
-                if manager.isRefreshing || manager.isSaving {
+                if manager.isRefreshing || isBusy {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -268,54 +347,67 @@ struct ProviderManagementView: View {
             }
 
             VStack(alignment: .leading, spacing: 14) {
-                if manager.selectedProvider == .custom {
-                    customCompatibilityPicker
+                if manager.selectedProvider.usesInteractiveOAuthFlow {
+                    oauthLoginCard
+                } else {
+                    if manager.selectedProvider == .custom {
+                        customCompatibilityPicker
+                    }
+
+                    ProviderInputField(
+                        title: "Base URL",
+                        helpText: baseURLHelpText,
+                        text: $manager.draftBaseURL,
+                        prompt: manager.selectedProvider.suggestedBaseURL
+                    )
+
+                    ProviderInputField(
+                        title: "默认模型",
+                        helpText: "保存时会额外调用 `openclaw config set agents.defaults.model.primary ...` 保证当前模型生效。",
+                        text: $manager.draftModel,
+                        prompt: manager.selectedProvider.suggestedModel
+                    )
+
+                    ProviderSecureField(
+                        title: "API Key",
+                        helpText: manager.selectedProvider.apiKeyHelpText,
+                        text: $manager.draftAPIKey
+                    )
                 }
-
-                ProviderInputField(
-                    title: "Base URL",
-                    helpText: baseURLHelpText,
-                    text: $manager.draftBaseURL,
-                    prompt: manager.selectedProvider.suggestedBaseURL
-                )
-
-                ProviderInputField(
-                    title: "默认模型",
-                    helpText: "保存时会额外调用 `openclaw config set agents.defaults.model.primary ...` 保证当前模型生效。",
-                    text: $manager.draftModel,
-                    prompt: manager.selectedProvider.suggestedModel
-                )
-
-                ProviderSecureField(
-                    title: "API Key",
-                    helpText: manager.selectedProvider.apiKeyHelpText,
-                    text: $manager.draftAPIKey
-                )
             }
 
             HStack(spacing: 10) {
-                Button("填入建议值") {
-                    manager.applySuggestedValues()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(manager.selectedProvider.accentColor)
+                if manager.selectedProvider.usesInteractiveOAuthFlow {
+                    Button(primaryActionTitle) {
+                        manager.launchOpenAICodexLogin()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(manager.selectedProvider.accentColor)
+                    .disabled(isBusy || manager.binaryPath == nil)
+                } else {
+                    Button("填入建议值") {
+                        manager.applySuggestedValues()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(manager.selectedProvider.accentColor)
 
-                Button("保存到 OpenClaw") {
-                    manager.saveCurrentProvider()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(manager.isSaving || manager.binaryPath == nil)
+                    Button(primaryActionTitle) {
+                        manager.saveCurrentProvider()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isBusy || manager.binaryPath == nil)
 
-                Button("清空输入") {
-                    manager.clearDrafts()
+                    Button("清空输入") {
+                        manager.clearDrafts()
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
 
                 Button("刷新状态") {
                     manager.refreshStatus(syncSelectionWithDefault: false)
                 }
                 .buttonStyle(.bordered)
-                .disabled(manager.isRefreshing || manager.isSaving)
+                .disabled(manager.isRefreshing || isBusy)
 
                 Spacer()
 
@@ -330,9 +422,9 @@ struct ProviderManagementView: View {
                 Text("接入建议")
                     .font(.headline)
 
-                suggestionRow("如果只是官方 OpenAI / Anthropic API，通常只需要填模型和 API Key。")
-                suggestionRow("如果是代理网关或自托管服务，优先填写 Base URL，再由页面走 `openclaw onboard --non-interactive` 生成完整配置。")
-                suggestionRow("Ollama 按 OpenClaw 的原生接法走 `http://127.0.0.1:11434`，不要再写 `/v1`。")
+                ForEach(providerSuggestions, id: \.self) { suggestion in
+                    suggestionRow(suggestion)
+                }
             }
         }
         .padding(20)
@@ -364,6 +456,8 @@ struct ProviderManagementView: View {
         switch manager.selectedProvider {
         case .openAI:
             "留空时只走官方 OpenAI 路径；如果填写，则会按 OpenAI-compatible custom provider 写入。"
+        case .openAICodex:
+            "OpenAI Codex 通过 ChatGPT OAuth 登录，此处不支持手动 Base URL。"
         case .anthropic:
             "留空时只走官方 Anthropic 路径；如果填写，则会按 Anthropic-compatible custom provider 写入。"
         case .openRouter, .liteLLM:
@@ -386,6 +480,46 @@ struct ProviderManagementView: View {
                 }
             }
             .pickerStyle(.segmented)
+        }
+    }
+
+    private var oauthLoginCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("登录方式")
+                .font(.headline)
+
+            Text("OpenAI Codex 通过 OpenClaw 的 ChatGPT OAuth 流程完成认证。Clawbar 会自动打开 Terminal 并调用官方登录命令。")
+                .font(.caption)
+                .foregroundStyle(theme.secondaryText)
+
+            VStack(alignment: .leading, spacing: 8) {
+                oauthDetailRow(
+                    title: "OpenClaw 命令",
+                    value: "openclaw models auth login --provider openai-codex --set-default"
+                )
+                oauthDetailRow(
+                    title: "浏览器回调",
+                    value: "http://localhost:1455/auth/callback"
+                )
+                oauthDetailRow(
+                    title: "默认模型",
+                    value: "openai-codex/\(manager.selectedProvider.suggestedModel)"
+                )
+            }
+            .padding(14)
+            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private func oauthDetailRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.secondaryText)
+
+            Text(value)
+                .font(.subheadline)
+                .textSelection(.enabled)
         }
     }
 

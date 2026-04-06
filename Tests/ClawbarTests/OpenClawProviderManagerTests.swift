@@ -45,6 +45,36 @@ final class OpenClawProviderManagerTests: XCTestCase {
         XCTAssertEqual(snapshot?.authStates["anthropic"]?.isConfigured, false)
     }
 
+    func testParseStatusSnapshotReadsOpenAICodexOAuthState() {
+        let output = """
+        {
+          "configPath": "/Users/test/.openclaw/openclaw.json",
+          "defaultModel": "openai-codex/gpt-5.4",
+          "auth": {
+            "providers": [
+              {
+                "provider": "openai-codex",
+                "effective": {
+                  "kind": "oauth",
+                  "detail": "oauth (openai-codex:user@example.com)"
+                }
+              }
+            ]
+          }
+        }
+        """
+
+        let snapshot = OpenClawProviderManager.parseStatusSnapshot(
+            output,
+            binaryPath: "/opt/homebrew/bin/openclaw"
+        )
+
+        XCTAssertEqual(snapshot?.defaultModelRef, "openai-codex/gpt-5.4")
+        XCTAssertEqual(snapshot?.authStates["openai-codex"]?.kind, "oauth")
+        XCTAssertEqual(snapshot?.authStates["openai-codex"]?.detail, "oauth (openai-codex:user@example.com)")
+        XCTAssertNil(snapshot?.authStates["openai-codex"]?.source)
+    }
+
     func testMakeSavePlanUsesCustomOnboardForCustomProvider() throws {
         let plan = try OpenClawProviderManager.makeSavePlan(
             provider: .custom,
@@ -107,6 +137,20 @@ final class OpenClawProviderManagerTests: XCTestCase {
         XCTAssertEqual(plan[1].arguments.last, "openai/gpt-5.4")
     }
 
+    func testMakeSavePlanRejectsOpenAICodexBecauseInteractiveLoginIsRequired() {
+        XCTAssertThrowsError(
+            try OpenClawProviderManager.makeSavePlan(
+                provider: .openAICodex,
+                customCompatibility: .openAI,
+                baseURL: "",
+                model: "gpt-5.4",
+                apiKey: ""
+            )
+        ) { error in
+            XCTAssertEqual(error as? OpenClawProviderSavePlanError, .interactiveLoginRequired)
+        }
+    }
+
     func testMakeSavePlanUsesOllamaOnboardAndSuggestedBaseURL() throws {
         let plan = try OpenClawProviderManager.makeSavePlan(
             provider: .ollama,
@@ -146,5 +190,35 @@ final class OpenClawProviderManagerTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? OpenClawProviderSavePlanError, .missingCustomBaseURL)
         }
+    }
+
+    func testRenderOpenAICodexLoginCommandUsesSupportedCliEntryPoint() {
+        XCTAssertEqual(
+            OpenClawProviderManager.renderOpenAICodexLoginCommand(),
+            "$ openclaw models auth login --provider openai-codex --set-default"
+        )
+    }
+
+    func testMakeOpenAICodexLoginShellCommandLaunchesInteractiveLoginAndKeepsShellOpen() {
+        let command = OpenClawProviderManager.makeOpenAICodexLoginShellCommand(
+            openClawBinaryAvailable: true,
+            path: "/opt/homebrew/bin:/usr/bin:/bin"
+        )
+
+        XCTAssertTrue(command.contains("export PATH='/opt/homebrew/bin:/usr/bin:/bin'"))
+        XCTAssertTrue(command.contains("openclaw models auth login --provider openai-codex --set-default"))
+        XCTAssertTrue(command.contains("OpenClaw 会自动打开浏览器"))
+        XCTAssertTrue(command.contains("exec $SHELL -l"))
+    }
+
+    func testMakeOpenAICodexLoginShellCommandWithoutBinaryKeepsTerminalOpenForDebugging() {
+        let command = OpenClawProviderManager.makeOpenAICodexLoginShellCommand(
+            openClawBinaryAvailable: false,
+            path: "/opt/homebrew/bin:/usr/bin:/bin"
+        )
+
+        XCTAssertTrue(command.contains("没有在当前 PATH 里找到 openclaw"))
+        XCTAssertFalse(command.contains("models auth login"))
+        XCTAssertTrue(command.contains("exec $SHELL -l"))
     }
 }

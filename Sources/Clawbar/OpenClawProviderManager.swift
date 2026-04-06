@@ -57,6 +57,7 @@ enum OpenClawProviderSavePlanError: LocalizedError, Equatable {
     case missingBinary
     case missingCustomBaseURL
     case missingModel
+    case interactiveLoginRequired
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +67,8 @@ enum OpenClawProviderSavePlanError: LocalizedError, Equatable {
             "Custom Provider 需要填写 Base URL。"
         case .missingModel:
             "请填写模型 ID，或选择带建议模型的 Provider。"
+        case .interactiveLoginRequired:
+            "OpenAI Codex 需要通过 ChatGPT OAuth 登录，请使用登录按钮完成授权。"
         }
     }
 }
@@ -90,6 +93,7 @@ final class OpenClawProviderManager: ObservableObject {
 
     @Published private(set) var isRefreshing = false
     @Published private(set) var isSaving = false
+    @Published private(set) var isInteractiveLoginInProgress = false
     @Published private(set) var binaryPath: String?
     @Published private(set) var configPath: String?
     @Published private(set) var defaultModelRef: String?
@@ -104,6 +108,13 @@ final class OpenClawProviderManager: ObservableObject {
     private let runCommand: CommandRunner
     private var latestSnapshot: OpenClawProviderSnapshot?
     private var hasLoadedInitialState = false
+    private var interactiveLoginPollingTask: Task<Void, Never>?
+
+    private nonisolated static let interactiveLoginPollIntervalNanoseconds: UInt64 = 2_000_000_000
+    private nonisolated static let interactiveLoginTimeout: TimeInterval = 300
+    private nonisolated static let openAICodexLoginArguments = [
+        "models", "auth", "login", "--provider", "openai-codex", "--set-default",
+    ]
 
     init(
         environmentProvider: @escaping EnvironmentProvider = { ProcessInfo.processInfo.environment },
@@ -111,6 +122,10 @@ final class OpenClawProviderManager: ObservableObject {
     ) {
         self.environmentProvider = environmentProvider
         self.runCommand = runCommand
+    }
+
+    deinit {
+        interactiveLoginPollingTask?.cancel()
     }
 
     func refreshStatus(syncSelectionWithDefault: Bool = false) {
@@ -218,6 +233,11 @@ final class OpenClawProviderManager: ObservableObject {
     }
 
     func saveCurrentProvider() {
+        if selectedProvider == .openAICodex {
+            launchOpenAICodexLogin()
+            return
+        }
+
         guard !isSaving else { return }
         guard let binaryPath = Self.detectInstalledBinaryPath(
             environment: OpenClawInstaller.installationEnvironment(base: environmentProvider())
@@ -280,6 +300,61 @@ final class OpenClawProviderManager: ObservableObject {
         }
     }
 
+    func launchOpenAICodexLogin() {
+        guard !isInteractiveLoginInProgress else { return }
+        guard let binaryPath = Self.detectInstalledBinaryPath(
+            environment: OpenClawInstaller.installationEnvironment(base: environmentProvider())
+        ) else {
+            lastActionSummary = "未检测到 OpenClaw"
+            lastActionDetail = OpenClawProviderSavePlanError.missingBinary.localizedDescription
+            return
+        }
+
+        stopInteractiveLoginPolling()
+
+        let environment = OpenClawInstaller.installationEnvironment(base: environmentProvider())
+        let shellCommand = Self.makeOpenAICodexLoginShellCommand(
+            openClawBinaryAvailable: true,
+            path: environment["PATH"] ?? ""
+        )
+        let appleScriptArguments = OpenClawChannelManager.makeTerminalLaunchArguments(
+            shellCommand: shellCommand
+        )
+        let commandLine = Self.renderOpenAICodexLoginCommand()
+
+        isInteractiveLoginInProgress = true
+        lastActionSummary = "正在启动 OpenAI Codex 登录..."
+        lastActionDetail = "Clawbar 会打开 Terminal 运行 OpenClaw 登录流程，OpenClaw 会自动拉起浏览器完成 ChatGPT OAuth。"
+        lastCommandOutput = commandLine
+
+        Task.detached(priority: .userInitiated) {
+            let launchResult = self.runCommand("/usr/bin/osascript", appleScriptArguments, environment, 8)
+
+            if launchResult.timedOut || launchResult.exitStatus != 0 {
+                await MainActor.run {
+                    self.isInteractiveLoginInProgress = false
+                    self.lastActionSummary = "OpenAI Codex 登录启动失败"
+                    self.lastActionDetail = launchResult.timedOut
+                        ? "打开 Terminal 超时。"
+                        : launchResult.output.nonEmptyOr("无法通过 Terminal 启动 openclaw 登录命令。")
+                    self.lastCommandOutput = [commandLine, launchResult.output.trimmedNonEmpty].compactMap { $0 }.joined(separator: "\n\n")
+                }
+                return
+            }
+
+            await MainActor.run {
+                self.lastActionSummary = "等待 OpenAI Codex 登录完成"
+                self.lastActionDetail = "已在 Terminal 启动登录流程。完成浏览器授权后，Clawbar 会自动刷新当前认证状态。"
+                self.beginOpenAICodexLoginPolling(binaryPath: binaryPath, environment: environment)
+            }
+        }
+    }
+
+    func stopInteractiveLoginPolling() {
+        interactiveLoginPollingTask?.cancel()
+        interactiveLoginPollingTask = nil
+    }
+
     func applySuggestedValues() {
         if draftBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             draftBaseURL = selectedProvider.suggestedBaseURL
@@ -326,6 +401,8 @@ final class OpenClawProviderManager: ObservableObject {
         var invocations: [OpenClawProviderCLIInvocation] = []
 
         switch provider {
+        case .openAICodex:
+            throw OpenClawProviderSavePlanError.interactiveLoginRequired
         case .openAI:
             if let trimmedBaseURL {
                 invocations.append(
@@ -672,6 +749,30 @@ final class OpenClawProviderManager: ObservableObject {
         return "$ openclaw \(rendered)"
     }
 
+    nonisolated static func renderOpenAICodexLoginCommand() -> String {
+        "$ openclaw \(openAICodexLoginArguments.map(Self.shellEscape(_:)).joined(separator: " "))"
+    }
+
+    nonisolated static func makeOpenAICodexLoginShellCommand(
+        openClawBinaryAvailable: Bool,
+        path: String
+    ) -> String {
+        var commands = ["export PATH=\(shellQuote(path))"]
+
+        guard openClawBinaryAvailable else {
+            commands.append(#"printf '%s\n' 'Clawbar 没有在当前 PATH 里找到 openclaw；请先确认 CLI 已安装。'"#)
+            commands.append("exec $SHELL -l")
+            return commands.joined(separator: "; ")
+        }
+
+        commands.append(#"printf '%s\n' 'Clawbar 正在启动 OpenAI Codex 登录，OpenClaw 会自动打开浏览器。'"#)
+        commands.append(openAICodexLoginArguments.map(shellEscape(_:)).joined(separator: " ").prepend("openclaw "))
+        commands.append("STATUS=$?")
+        commands.append(#"if [ "$STATUS" -ne 0 ]; then printf '\n%s\n' "openclaw login exited with status $STATUS."; fi"#)
+        commands.append("exec $SHELL -l")
+        return commands.joined(separator: "; ")
+    }
+
     private nonisolated static func shellEscape(_ text: String) -> String {
         guard !text.isEmpty else { return "''" }
 
@@ -681,6 +782,55 @@ final class OpenClawProviderManager: ObservableObject {
         }
 
         return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private nonisolated static func shellQuote(_ text: String) -> String {
+        let escaped = text.replacingOccurrences(of: "'", with: #"'\"'\"'"#)
+        return "'\(escaped)'"
+    }
+
+    private func beginOpenAICodexLoginPolling(
+        binaryPath: String,
+        environment: [String: String]
+    ) {
+        stopInteractiveLoginPolling()
+
+        interactiveLoginPollingTask = Task.detached(priority: .utility) {
+            let deadline = Date().addingTimeInterval(Self.interactiveLoginTimeout)
+
+            while !Task.isCancelled, Date() < deadline {
+                let snapshot = Self.loadStatusSnapshot(
+                    binaryPath: binaryPath,
+                    environment: environment,
+                    runCommand: self.runCommand
+                )
+
+                if snapshot?.authStates[ProviderKind.openAICodex.rawValue]?.isConfigured == true {
+                    await MainActor.run {
+                        self.stopInteractiveLoginPolling()
+                        self.isInteractiveLoginInProgress = false
+                        self.lastActionSummary = "OpenAI Codex 已连接"
+                        self.lastActionDetail = "ChatGPT OAuth 已完成，正在同步当前 Provider 状态。"
+                        self.refreshStatus(syncSelectionWithDefault: true)
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    self.lastActionSummary = "等待 OpenAI Codex 登录完成"
+                    self.lastActionDetail = "已在 Terminal 启动登录流程。若浏览器没有自动打开，请回到 Terminal 按提示继续。"
+                }
+
+                try? await Task.sleep(nanoseconds: Self.interactiveLoginPollIntervalNanoseconds)
+            }
+
+            await MainActor.run {
+                self.stopInteractiveLoginPolling()
+                self.isInteractiveLoginInProgress = false
+                self.lastActionSummary = "OpenAI Codex 登录超时"
+                self.lastActionDetail = "Clawbar 在 5 分钟内没有检测到新的 OAuth 凭据。请检查 Terminal / 浏览器中的登录流程后重试。"
+            }
+        }
     }
 
     private nonisolated static func runCommand(
@@ -742,6 +892,10 @@ private func sanitizeProviderCommandOutput(_ data: Data) -> String {
 }
 
 private extension String {
+    func prepend(_ prefix: String) -> String {
+        prefix + self
+    }
+
     var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

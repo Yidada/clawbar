@@ -1,21 +1,13 @@
 import SwiftUI
 import ClawbarKit
 
-private enum ApplicationManagementSection: String, CaseIterable, Identifiable {
-    case provider
-    case gateway
-    case channels
-
-    var id: String { rawValue }
-}
-
 struct ApplicationManagementView: View {
     let configuration: AppConfiguration
     @ObservedObject var gatewayManager: OpenClawGatewayManager
-    @State private var selectedSection: ApplicationManagementSection = .provider
+    @ObservedObject var router: ApplicationManagementRouter
 
     var body: some View {
-        TabView(selection: $selectedSection) {
+        TabView(selection: $router.selectedSection) {
             ProviderManagementView()
                 .tabItem {
                     Label(configuration.providerLabel, systemImage: "slider.horizontal.3")

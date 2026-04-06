@@ -14,6 +14,7 @@ struct ClawbarApp: App {
     private let installer = OpenClawInstaller.shared
     private let gatewayManager = OpenClawGatewayManager.shared
     private let tuiManager = OpenClawTUIManager.shared
+    private let applicationManagementRouter = ApplicationManagementRouter.shared
 
     @SceneBuilder
     var body: some Scene {
@@ -28,7 +29,8 @@ struct ClawbarApp: App {
                 model: .makeDefault(configuration: configuration),
                 installer: installer,
                 gatewayManager: gatewayManager,
-                tuiManager: tuiManager
+                tuiManager: tuiManager,
+                applicationManagementRouter: applicationManagementRouter
             )
         } label: {
             Label(configuration.menuBarTitle, systemImage: configuration.systemImageName)
@@ -49,7 +51,8 @@ struct ClawbarApp: App {
         Window(configuration.applicationWindowTitle, id: ClawbarWindow.applicationManagementID) {
             ApplicationManagementView(
                 configuration: configuration,
-                gatewayManager: gatewayManager
+                gatewayManager: gatewayManager,
+                router: applicationManagementRouter
             )
         }
         .defaultSize(width: 820, height: 660)

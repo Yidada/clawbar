@@ -7,6 +7,7 @@ struct SmokeTestView: View {
     @ObservedObject var installer: OpenClawInstaller
     @ObservedObject var gatewayManager: OpenClawGatewayManager
     @ObservedObject var tuiManager: OpenClawTUIManager
+    @ObservedObject var applicationManagementRouter: ApplicationManagementRouter
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -23,7 +24,8 @@ struct SmokeTestView: View {
                 model: model,
                 installer: installer,
                 gatewayManager: gatewayManager,
-                tuiManager: tuiManager
+                tuiManager: tuiManager,
+                applicationManagementRouter: applicationManagementRouter
             )
         }
         .padding(20)

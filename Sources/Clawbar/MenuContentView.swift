@@ -7,6 +7,7 @@ struct MenuContentView: View {
     @ObservedObject var installer: OpenClawInstaller
     @ObservedObject var gatewayManager: OpenClawGatewayManager
     @ObservedObject var tuiManager: OpenClawTUIManager
+    @ObservedObject var applicationManagementRouter: ApplicationManagementRouter
     @Environment(\.openWindow) private var openWindow
     @Environment(\.colorScheme) private var colorScheme
 
@@ -201,49 +202,54 @@ struct MenuContentView: View {
     }
 
     private func statusRow(_ row: MenuPanelRowSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.title)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(theme.primaryText)
+        Button {
+            openApplicationManagement(section: applicationManagementSection(for: row.dimension))
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(row.title)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(theme.primaryText)
 
-                    Text(row.summary)
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(theme.secondaryText)
+                        Text(row.summary)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer(minLength: 10)
+
+                    Text(row.statusLabel)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(theme.pillForeground(for: row.level))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(theme.pillBackground(for: row.level))
+                        .clipShape(Capsule())
+                }
+
+                if let detail = row.detail {
+                    Text(detail)
+                        .font(.system(size: 11.5, weight: .regular))
+                        .foregroundStyle(theme.tertiaryText)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-
-                Spacer(minLength: 10)
-
-                Text(row.statusLabel)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(theme.pillForeground(for: row.level))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(theme.pillBackground(for: row.level))
-                    .clipShape(Capsule())
             }
-
-            if let detail = row.detail {
-                Text(detail)
-                    .font(.system(size: 11.5, weight: .regular))
-                    .foregroundStyle(theme.tertiaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(theme.rowBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(theme.panelBorder.opacity(0.85), lineWidth: 1)
+                    )
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(theme.rowBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(theme.panelBorder.opacity(0.85), lineWidth: 1)
-                )
-        )
+        .buttonStyle(.plain)
     }
 
     private func actionButton(
@@ -304,6 +310,17 @@ struct MenuContentView: View {
         installer.healthSnapshot?.overallLevel ?? .unknown
     }
 
+    private func applicationManagementSection(for dimension: OpenClawHealthDimension) -> ApplicationManagementSection {
+        switch dimension {
+        case .provider:
+            .provider
+        case .gateway:
+            .gateway
+        case .channel:
+            .channels
+        }
+    }
+
     private var upgradeButtonTitle: String {
         if installer.isUpdating {
             return "升级中…"
@@ -351,5 +368,10 @@ struct MenuContentView: View {
         gatewayManager.refreshStatus()
         openWindow(id: ClawbarWindow.applicationManagementID)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openApplicationManagement(section: ApplicationManagementSection) {
+        applicationManagementRouter.show(section)
+        openApplicationManagement()
     }
 }

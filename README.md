@@ -1,138 +1,77 @@
 # clawbar
 
-Clawbar 是一个 macOS 菜单栏应用，用于本地安装、管理和操作 OpenClaw。
+[简体中文](README.zh-CN.md)
 
-它已经不再是早期的 Hello World 示例，而是一个围绕 OpenClaw 本机运行体验构建的桌面运维入口：从安装、卸载，到 Gateway、Provider、Channels 和 TUI 启动，都在同一个菜单栏应用里完成。
+Clawbar is a macOS 14+ menu bar app for installing, configuring, and operating a local OpenClaw setup. It keeps the operational entry points in one place: install or remove OpenClaw, manage Gateway, Providers, and Channels, and launch the OpenClaw TUI from the menu bar.
 
-## 当前能力
+## Install
 
-- 菜单栏常驻入口，显示 OpenClaw 安装状态、可执行文件路径和最近状态摘要。
-- 安装 / 卸载 OpenClaw，并在独立窗口中展示执行日志、状态文本和后续处理结果。
-- 安装完成后自动准备本地 Gateway token，并尝试安装 Gateway 后台服务。
-- 管理窗口内置 3 个页签：
-  - `Provider`：通过 `openclaw` CLI 读取并写回 Provider 配置、默认模型和认证状态。
-  - `Gateway`：查看服务状态、PID、CLI 路径，并执行启动、重启、暂停、刷新。
-  - `Channels`：维护飞书入口配置，并按官方流程安装 / 扫码接入微信能力。
-- 支持的 Provider 类型：`OpenAI`、`Anthropic`、`OpenRouter`、`LiteLLM`、`Ollama`、`Custom`。
-- 支持从菜单栏一键拉起 OpenClaw TUI，并自动带上本地 Gateway 凭证辅助调试或配对。
+### GitHub Releases
 
-## 环境要求
+Download the notarized DMG from [GitHub Releases](https://github.com/Yidada/clawbar/releases).
 
-- macOS 14+
-- Swift tools `6.2` 或更新版本
-- Xcode 中可用的 Swift 6.2 toolchain，或独立 Swift 6.2+
+### Run From Source
 
-`Package.swift` 当前声明为 `// swift-tools-version: 6.2`。如果本机只有 Swift 6.1.x，`swift build` / `swift test` 会直接失败。
-
-## 快速开始
-
-在仓库根目录执行：
+From the repository root:
 
 ```bash
 swift run Clawbar
 ```
 
-首次运行后，应用会以菜单栏图标形式驻留。若尚未安装 OpenClaw，可直接从菜单中打开安装流程。
+## Requirements
 
-## 开发命令
+- macOS 14+
+- Swift tools `6.2` or newer
+- Xcode with a Swift 6.2 toolchain, or standalone Swift 6.2+
 
-构建：
+`Package.swift` currently declares `// swift-tools-version: 6.2`. If your machine only has Swift 6.1.x, `swift build`, `swift run`, and `swift test` will fail.
+
+## First Run
+
+- Launch Clawbar and look for the menu bar icon.
+- If OpenClaw is not installed yet, open the install flow from the menu.
+- Use the management window to work with Providers, Gateway, and Channels.
+- Launch the OpenClaw TUI directly from the menu bar when you need local debugging or pairing flows.
+
+## What Clawbar Manages
+
+- OpenClaw install and uninstall, with execution logs and status feedback in a dedicated window.
+- Local Gateway token preparation and Gateway background service management.
+- Provider configuration, default model selection, and authentication state management through the `openclaw` CLI.
+- Channel management for Feishu registration and WeChat onboarding flows.
+- Menu bar status summaries for installation state, executable path, and recent operational status.
+
+## Development
+
+The main developer entrypoint is the unified harness at `Tests/Harness/clawbarctl.py`.
 
 ```bash
 swift build
+python3 Tests/Harness/clawbarctl.py app dev-loop
+python3 Tests/Harness/clawbarctl.py test unit --coverage-gate
+python3 Tests/Harness/clawbarctl.py test smoke
+python3 Tests/Harness/clawbarctl.py test integration --suite all
+python3 Tests/Harness/clawbarctl.py test all
 ```
 
-运行测试：
+Top-level `Scripts/*.sh` commands remain available as compatibility wrappers, but new automation and docs should prefer the harness commands above.
 
-```bash
-swift test
-```
+For harness details, see [Tests/Harness/README.md](Tests/Harness/README.md).
 
-开发循环（监听 `Package.swift`、`Sources/`、`Tests/`，变更后自动重编译并重启）：
+## Release
 
-```bash
-./Scripts/dev.sh
-```
+Clawbar uses a tag-driven notarized DMG release flow. Pushing a `v*` tag triggers the GitHub Actions pipeline that runs tests, signs the app, submits it for notarization, staples the result, and publishes the DMG to GitHub Releases.
 
-开发循环日志写入：
+See [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md) for the release prerequisites and detailed steps.
 
-```text
-Artifacts/DevRunner/clawbar-dev.log
-```
+## Docs
 
-可选轮询间隔：
+- [docs/README.md](docs/README.md) for project documentation
+- [Tests/Harness/README.md](Tests/Harness/README.md) for the local control and test harness
+- [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md) for signing, notarization, and DMG release details
 
-```bash
-CLAWBAR_DEV_POLL_INTERVAL=0.5 ./Scripts/dev.sh
-```
+## Repository Notes
 
-覆盖率检查：
+`References/openclaw` is the pinned local OpenClaw reference snapshot for integration work. Project-local skills live under `.agents/skills/` and are managed with `python3 Scripts/project_skills.py`.
 
-```bash
-./Scripts/check_coverage.sh
-```
-
-Smoke test（会构建、启动 smoke harness，并生成截图与日志）：
-
-```bash
-./Scripts/smoke_test.sh
-```
-
-默认产物路径：
-
-```text
-Artifacts/SmokeTests/hello-world-smoke.png
-Artifacts/SmokeTests/clawbar-smoke.log
-```
-
-完整测试流程：
-
-```bash
-./Scripts/test.sh
-```
-
-## 发布
-
-正式 macOS 发布改为 tag 驱动的 notarized DMG 流程：
-
-- 常规 CI 继续跑 `swift build` / `swift test`
-- 推送 `v*` tag 后，GitHub Actions 会执行签名、公证、stapling 和 DMG 发布
-- 需要预先配置 Apple 证书和 notarization 相关 secrets
-
-详细步骤见：
-
-```text
-docs/2026-04-05-notarized-release-process.md
-```
-
-## 仓库结构
-
-- `Sources/ClawbarKit`：共享的生命周期、配置、菜单模型等可测试逻辑。
-- `Sources/Clawbar`：App 入口、SwiftUI / AppKit 集成，以及 OpenClaw 安装、Gateway、Provider、Channels、TUI 等流程。
-- `Tests/ClawbarTests`：XCTest 测试。
-- `Scripts/`：开发、测试、覆盖率和 smoke test 脚本。
-- `Artifacts/`：运行日志和测试产物。
-- `docs/`：设计说明、调查记录和排障文档。
-- `References/openclaw`：固定提交的 OpenClaw 参考快照。
-
-## OpenClaw 参考工作流
-
-凡是涉及 OpenClaw 内部行为、CLI 参数、Gateway / Channel 协议、配置格式或 API 假设的修改，优先阅读 `References/openclaw`，不要只凭记忆或旧笔记实现。
-
-- `References/openclaw` 是 vendored snapshot，不是开发目录。
-- 如果当前任务依赖最新的 OpenClaw 接口，先同步参考快照，再修改 Clawbar。
-- 参考快照更新应尽量和 Clawbar 行为改动分开提交，除非任务本身就是做 reference sync。
-
-## 项目技能
-
-本仓库把项目相关 skills 放在 `.agents/skills/`，并通过 `.agents/skills/registry.json` 管理，不依赖全局机器状态。
-
-常用命令：
-
-```bash
-python3 Scripts/project_skills.py list
-python3 Scripts/project_skills.py check
-python3 Scripts/project_skills.py sync
-```
-
-如果 Clawbar 或 OpenClaw 行为异常，优先使用项目本地的 `clawbar-openclaw-logs` skill 收集当前日志，再继续判断问题。
+For repository-specific conventions, see `AGENTS.md`.

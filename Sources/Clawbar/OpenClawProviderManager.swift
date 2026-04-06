@@ -605,8 +605,9 @@ final class OpenClawProviderManager: ObservableObject {
         _ output: String,
         binaryPath: String
     ) -> OpenClawProviderSnapshot? {
+        let jsonString = ChannelCommandSupport.extractTrailingJSONObjectString(from: output) ?? output
         guard
-            let data = output.data(using: .utf8),
+            let data = jsonString.data(using: .utf8),
             let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return nil

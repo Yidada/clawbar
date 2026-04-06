@@ -96,28 +96,120 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
-    func testMakeStatusSnapshotUsesExcerptWhenStatusReturnsLines() {
+    func testParseStatusPayloadReadsRuntimeGatewayAndChannelSummary() {
+        let output = """
+        [plugins] warning
+        {
+          "runtimeVersion": "2026.4.5",
+          "channelSummary": [
+            "WeChat: configured",
+            "  - default"
+          ],
+          "gateway": {
+            "reachable": true,
+            "url": "ws://127.0.0.1:18789"
+          },
+          "gatewayService": {
+            "installed": true,
+            "loaded": true,
+            "runtimeShort": "running (pid 123)"
+          }
+        }
+        """
+
+        let payload = OpenClawInstaller.parseStatusPayload(from: output)
+
+        XCTAssertEqual(payload?.runtimeVersion, "2026.4.5")
+        XCTAssertEqual(payload?.channelSummary.first, "WeChat: configured")
+        XCTAssertEqual(payload?.gateway.reachable, true)
+        XCTAssertEqual(payload?.gateway.url, "ws://127.0.0.1:18789")
+        XCTAssertEqual(payload?.gatewayService.runtimeShort, "running (pid 123)")
+    }
+
+    func testMakeStatusSnapshotBuildsStructuredHealthOverview() {
+        let statusResult = OpenClawChannelCommandResult(
+            output: """
+            {
+              "runtimeVersion": "2026.4.5",
+              "channelSummary": [
+                "WeChat: configured",
+                "  - default"
+              ],
+              "gateway": {
+                "reachable": true
+              },
+              "gatewayService": {
+                "installed": true,
+                "loaded": true,
+                "runtimeShort": "running"
+              }
+            }
+            """,
+            exitStatus: 0,
+            timedOut: false
+        )
+        let providerSnapshot = OpenClawProviderSnapshot(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            configPath: "/Users/test/.openclaw/openclaw.json",
+            defaultModelRef: "openrouter/anthropic/claude-sonnet-4-6",
+            authStates: [
+                "openrouter": OpenClawProviderAuthState(
+                    kind: "env",
+                    detail: "OPENROUTER_API_KEY",
+                    source: "env: OPENROUTER_API_KEY"
+                )
+            ]
+        )
+        let gatewaySnapshot = OpenClawGatewayStatusSnapshot(
+            state: .running,
+            detail: "Gateway 后台服务正在运行。",
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            runtimeStatus: "running",
+            serviceLoaded: true,
+            serviceLabel: "ai.openclaw.gateway",
+            pid: 123,
+            missingUnit: false
+        )
+
         let snapshot = OpenClawInstaller.makeStatusSnapshot(
             binaryPath: "/opt/homebrew/bin/openclaw",
-            commandOutput: "\nstatus ok\nsecond line\n",
-            timedOut: false
+            statusResult: statusResult,
+            providerSnapshot: providerSnapshot,
+            gatewaySnapshot: gatewaySnapshot
         )
 
         XCTAssertEqual(snapshot.title, "OpenClaw 已安装")
-        XCTAssertEqual(snapshot.detail, "status 已返回最近状态。")
-        XCTAssertEqual(snapshot.excerpt, "status ok")
-        XCTAssertEqual(snapshot.binaryPath, "/opt/homebrew/bin/openclaw")
+        XCTAssertEqual(snapshot.detail, "Provider 已配置 · Gateway 可达 · Channel 已就绪")
+        XCTAssertEqual(snapshot.excerpt, "OpenClaw 2026.4.5")
+        XCTAssertEqual(snapshot.healthSnapshot.overallLevel, .healthy)
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions.map(\.dimension), [.provider, .gateway, .channel])
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[0].summary, "OpenRouter / anthropic/claude-sonnet-4-6")
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[1].statusLabel, "可达")
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].summary, "WeChat / 已配置")
     }
 
-    func testMakeStatusSnapshotReportsTimeoutWhenStatusDoesNotComplete() {
-        let snapshot = OpenClawInstaller.makeStatusSnapshot(
+    func testMakeStatusSnapshotReportsTimeoutAndKeepsPartialHealthView() {
+        let gatewaySnapshot = OpenClawGatewayStatusSnapshot(
+            state: .missing,
+            detail: "Gateway 服务尚未安装到 launchd。",
             binaryPath: "/opt/homebrew/bin/openclaw",
-            commandOutput: "plugin warning",
-            timedOut: true
+            runtimeStatus: nil,
+            serviceLoaded: false,
+            serviceLabel: "ai.openclaw.gateway",
+            pid: nil,
+            missingUnit: true
         )
 
-        XCTAssertEqual(snapshot.detail, "status 命令未在 3 秒内完成。")
-        XCTAssertEqual(snapshot.excerpt, "plugin warning")
+        let snapshot = OpenClawInstaller.makeStatusSnapshot(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            statusResult: OpenClawChannelCommandResult(output: "", exitStatus: 0, timedOut: true),
+            providerSnapshot: nil,
+            gatewaySnapshot: gatewaySnapshot
+        )
+
+        XCTAssertEqual(snapshot.detail, "openclaw status --json 未在 5 秒内完成；当前展示最近一次可推断的健康视图。")
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[1].statusLabel, "未安装")
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].statusLabel, "未知")
     }
 
     func testInstallationEnvironmentAddsCommonInteractivePaths() {
@@ -145,6 +237,7 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(snapshot.detail, "status 已返回最近状态。")
         XCTAssertEqual(snapshot.excerpt, "plugins.allow is empty; discovered non-bundled plugins.")
         XCTAssertEqual(snapshot.binaryPath, "/opt/homebrew/bin/openclaw")
+        XCTAssertEqual(snapshot.healthSnapshot, .placeholderInstalled)
     }
 
     func testRefreshInstallationStatusUsesOverrideSnapshot() {
@@ -155,7 +248,8 @@ final class OpenClawInstallerTests: XCTestCase {
                         title: "OpenClaw 已安装",
                         detail: "status 已返回最近状态。",
                         excerpt: "plugins.allow is empty; discovered non-bundled plugins.",
-                        binaryPath: "/opt/homebrew/bin/openclaw"
+                        binaryPath: "/opt/homebrew/bin/openclaw",
+                        healthSnapshot: .placeholderInstalled
                     )
                 )
             ),
@@ -169,32 +263,8 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(installer.detailText, "status 已返回最近状态。")
         XCTAssertEqual(installer.statusExcerpt, "plugins.allow is empty; discovered non-bundled plugins.")
         XCTAssertEqual(installer.installedBinaryPath, "/opt/homebrew/bin/openclaw")
+        XCTAssertEqual(installer.healthSnapshot, .placeholderInstalled)
         XCTAssertNotNil(installer.lastStatusRefreshDate)
-    }
-
-    func testMergeStatusSnapshotSurfacesMissingGatewayService() {
-        let openClawSnapshot = OpenClawStatusSnapshot(
-            title: "OpenClaw 已安装",
-            detail: "status 已返回最近状态。",
-            excerpt: "status ok",
-            binaryPath: "/opt/homebrew/bin/openclaw"
-        )
-        let gatewaySnapshot = OpenClawGatewayStatusSnapshot(
-            state: .missing,
-            detail: "Gateway 服务尚未安装到 launchd。",
-            binaryPath: "/opt/homebrew/bin/openclaw",
-            runtimeStatus: "unknown",
-            serviceLoaded: false,
-            serviceLabel: "LaunchAgent",
-            pid: nil,
-            missingUnit: true
-        )
-
-        let merged = OpenClawInstaller.mergeStatusSnapshot(openClawSnapshot, gatewaySnapshot: gatewaySnapshot)
-
-        XCTAssertEqual(merged.title, "OpenClaw 已安装")
-        XCTAssertEqual(merged.detail, "OpenClaw CLI 已安装，但 Gateway 服务尚未安装到 launchd。")
-        XCTAssertEqual(merged.excerpt, "status ok")
     }
 
     func testPrepareGatewayServiceReturnsReadyWhenInstallRegistersLaunchAgent() {

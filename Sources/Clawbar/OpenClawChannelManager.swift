@@ -610,7 +610,7 @@ final class OpenClawChannelManager: ObservableObject {
     }
 
     nonisolated static func parseStatusPayload(from output: String) -> OpenClawWeixinStatusPayload? {
-        guard let jsonString = extractTrailingJSONObjectString(from: output),
+        guard let jsonString = ChannelCommandSupport.extractTrailingJSONObjectString(from: output),
               let payload = ChannelCommandSupport.parseJSONObject(from: jsonString) else {
             return nil
         }
@@ -664,22 +664,6 @@ final class OpenClawChannelManager: ObservableObject {
         }
 
         return .pluginPresentButNotConfigured
-    }
-
-    nonisolated static func extractTrailingJSONObjectString(from output: String) -> String? {
-        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let candidateIndices = trimmed.indices.filter { trimmed[$0] == "{" }
-        for index in candidateIndices.reversed() {
-            let candidate = String(trimmed[index...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !candidate.isEmpty else { continue }
-            if ChannelCommandSupport.parseJSONObject(from: candidate) != nil {
-                return candidate
-            }
-        }
-
-        return nil
     }
 
     nonisolated static func parseChannelSummary(_ lines: [String]) -> (status: String, accountLabel: String?)? {

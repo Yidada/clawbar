@@ -26,6 +26,12 @@
       "mode": "owned",
       "category": "diagnostics",
       "purpose": "Collect the current Clawbar and OpenClaw runtime logs into a single diagnostics bundle for troubleshooting."
+    },
+    {
+      "name": "clawbar-package-dmg",
+      "mode": "owned",
+      "category": "release",
+      "purpose": "Package the current Clawbar checkout into a local DMG artifact, with an optional signed and notarized release path."
     }
   ]
 }

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+NOTARIZE="${CLAWBAR_DMG_NOTARIZE:-0}"
+
+case "$NOTARIZE" in
+  0)
+    exec env OUTPUT_FORMAT=dmg "$ROOT_DIR/Scripts/package_app.sh"
+    ;;
+  1)
+    exec env OUTPUT_FORMAT=dmg "$ROOT_DIR/Scripts/sign_and_notarize.sh"
+    ;;
+  *)
+    echo "Unsupported CLAWBAR_DMG_NOTARIZE value: $NOTARIZE" >&2
+    echo "Use 0 for local packaging or 1 for signing + notarization." >&2
+    exit 1
+    ;;
+esac

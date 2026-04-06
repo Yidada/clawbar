@@ -207,7 +207,7 @@ final class OpenClawInstallerTests: XCTestCase {
             gatewaySnapshot: gatewaySnapshot
         )
 
-        XCTAssertEqual(snapshot.detail, "openclaw status --json 未在 5 秒内完成；当前展示最近一次可推断的健康视图。")
+        XCTAssertEqual(snapshot.detail, "openclaw status --json 未在 30 秒内完成；当前展示最近一次可推断的健康视图。")
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[1].statusLabel, "未安装")
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].statusLabel, "未知")
     }

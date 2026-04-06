@@ -1220,6 +1220,14 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             runCommand: runCommand
         )
         let pluginInfo = parsePluginInfo(from: infoResult.output)
+        let channelRuntimeSnapshot = OpenClawChannelsSnapshotSupport.fetchSnapshot(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            pluginIDs: ["openclaw-lark"]
+        )
+        let feishuChannel = channelRuntimeSnapshot.channel(id: "feishu")
+        let pluginInspection = channelRuntimeSnapshot.pluginInspection(id: "openclaw-lark")
         let openClawVersion = pluginInfo?.openClawVersion
         let resolvedSetupMode = resolvedSetupMode(
             preferred: currentSetupMode,
@@ -1258,7 +1266,11 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             )
         }
 
-        if !pluginInfo.pluginInstalled {
+        let pluginInstalled = feishuChannel != nil || pluginInspection?.isActive == true || pluginInfo.pluginInstalled
+        let channelEnabled = feishuChannel?.configured ?? false
+        let gatewayReachable = feishuChannel?.running ?? false
+
+        if !pluginInstalled {
             return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .install,
                 onboardingState: .selectingMode,
@@ -1279,18 +1291,6 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             )
         }
 
-        let channelEnabled = readBooleanConfig(
-            openClawBinaryPath: openClawBinaryPath,
-            environment: environment,
-            runCommand: runCommand,
-            path: "channels.feishu.enabled"
-        ) ?? false
-        let gatewayReachable = queryGatewayReachable(
-            openClawBinaryPath: openClawBinaryPath,
-            environment: environment,
-            runCommand: runCommand
-        )
-
         if !channelEnabled {
             return FeishuChannelStatusSnapshot.idle.updating(
                 stage: .verify,
@@ -1305,7 +1305,28 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
                 setupMode: resolvedSetupMode,
                 summary: "Feishu 插件已安装，Channel 未启用",
-                detail: "点击“重新启用”后，Clawbar 会写入 `channels.feishu.enabled=true` 并重启 Gateway。",
+                detail: pluginInspection?.isActive == true
+                    ? "插件已激活，但 runtime 里还没有已配置的 Feishu Channel。点击“重新启用”后，Clawbar 会写入 `channels.feishu.enabled=true` 并重启 Gateway。"
+                    : "点击“重新启用”后，Clawbar 会写入 `channels.feishu.enabled=true` 并重启 Gateway。",
+                logSummary: .some(logSummary(from: infoResult.output))
+            )
+        }
+
+        if gatewayReachable {
+            return FeishuChannelStatusSnapshot.idle.updating(
+                stage: .ready,
+                onboardingState: .ready,
+                pluginInstalled: true,
+                channelEnabled: true,
+                gatewayReachable: true,
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(pluginInfo.openClawVersion),
+                pluginVersion: .some(pluginInfo.pluginVersion),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
+                summary: "Feishu 已启用并可用",
+                detail: "Feishu Channel 已在 runtime 中运行；插件安装信息仅作为补充信号保留。",
                 logSummary: .some(logSummary(from: infoResult.output))
             )
         }
@@ -1317,7 +1338,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 onboardingState: .diagnosing,
                 pluginInstalled: true,
                 channelEnabled: true,
-                gatewayReachable: gatewayReachable,
+                gatewayReachable: false,
                 doctorHealthy: .some(false),
                 openClawBinaryPath: .some(displayOpenClawPath),
                 npxBinaryPath: .some(displayNpxPath),
@@ -1331,31 +1352,12 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             )
         }
 
-        if !gatewayReachable {
-            return FeishuChannelStatusSnapshot.idle.updating(
-                stage: .verify,
-                onboardingState: .idle,
-                pluginInstalled: true,
-                channelEnabled: true,
-                gatewayReachable: false,
-                doctorHealthy: .some(true),
-                openClawBinaryPath: .some(displayOpenClawPath),
-                npxBinaryPath: .some(displayNpxPath),
-                openClawVersion: .some(pluginInfo.openClawVersion),
-                pluginVersion: .some(pluginInfo.pluginVersion),
-                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
-                setupMode: resolvedSetupMode,
-                summary: "Feishu 已启用，等待 Gateway 恢复",
-                detail: "当前 Gateway 未运行或未加载，建议先处理 Gateway 再重新验证。"
-            )
-        }
-
         return FeishuChannelStatusSnapshot.idle.updating(
-            stage: .ready,
-            onboardingState: .ready,
+            stage: .verify,
+            onboardingState: .idle,
             pluginInstalled: true,
             channelEnabled: true,
-            gatewayReachable: true,
+            gatewayReachable: false,
             doctorHealthy: .some(true),
             openClawBinaryPath: .some(displayOpenClawPath),
             npxBinaryPath: .some(displayNpxPath),
@@ -1363,8 +1365,8 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             pluginVersion: .some(pluginInfo.pluginVersion),
             reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
             setupMode: resolvedSetupMode,
-            summary: "Feishu 已启用并可用",
-            detail: "官方插件已安装，Feishu Channel 已启用，Gateway 当前运行正常。",
+            summary: "Feishu 已配置，等待 runtime 恢复",
+            detail: trimmedNonEmpty(feishuChannel?.lastError) ?? "Feishu Channel 已配置，但当前还没有 running runtime。",
             logSummary: .some(logSummary(from: infoResult.output))
         )
     }

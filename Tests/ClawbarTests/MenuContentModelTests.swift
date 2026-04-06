@@ -13,6 +13,7 @@ final class MenuContentModelTests: XCTestCase {
             menuMissingSubtitle: "Missing subtitle",
             menuRefreshingStatusLabel: "Refreshing",
             installLabel: "Install OpenClaw",
+            upgradeLabel: "Upgrade OpenClaw",
             uninstallLabel: "Uninstall OpenClaw",
             tuiDebugLabel: "Launch TUI",
             applicationLabel: "Manage App",
@@ -37,6 +38,7 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.missingSubtitle, "Missing subtitle")
         XCTAssertEqual(model.refreshingStatusLabel, "Refreshing")
         XCTAssertEqual(model.installButtonTitle, "Install OpenClaw")
+        XCTAssertEqual(model.upgradeButtonTitle, "Upgrade OpenClaw")
         XCTAssertEqual(model.uninstallButtonTitle, "Uninstall OpenClaw")
         XCTAssertEqual(model.tuiDebugButtonTitle, "Launch TUI")
         XCTAssertEqual(model.managementButtonTitle, "Manage App")
@@ -55,6 +57,7 @@ final class MenuContentModelTests: XCTestCase {
         XCTAssertEqual(model.accessibilityIdentifier(for: .gatewayRow), "clawbar.menu.gatewayRow")
         XCTAssertEqual(model.accessibilityIdentifier(for: .channelRow), "clawbar.menu.channelRow")
         XCTAssertEqual(model.accessibilityIdentifier(for: .installButton), "clawbar.menu.installButton")
+        XCTAssertEqual(model.accessibilityIdentifier(for: .upgradeButton), "clawbar.menu.upgradeButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .uninstallButton), "clawbar.menu.uninstallButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .tuiDebugButton), "clawbar.menu.tuiDebugButton")
         XCTAssertEqual(model.accessibilityIdentifier(for: .managementButton), "clawbar.menu.managementButton")

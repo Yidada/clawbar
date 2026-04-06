@@ -13,6 +13,7 @@ final class AppConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.menuMissingTitle, "OpenClaw 未安装")
         XCTAssertEqual(configuration.menuMissingSubtitle, "安装后即可在此查看 Provider、Gateway 和 Channel 摘要。")
         XCTAssertEqual(configuration.installLabel, "安装 OpenClaw")
+        XCTAssertEqual(configuration.upgradeLabel, "升级 OpenClaw")
         XCTAssertEqual(configuration.uninstallLabel, "卸载 OpenClaw")
         XCTAssertEqual(configuration.tuiDebugLabel, "启动 TUI")
         XCTAssertEqual(configuration.applicationLabel, "Settings")

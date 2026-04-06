@@ -111,6 +111,18 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
                 .result(.init(output: notInstalledInfoOutput, exitStatus: 0, timedOut: false)),
                 .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
             ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): [
+                .result(.init(output: "{ }\n", exitStatus: 1, timedOut: false)),
+                .result(.init(output: feishuChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): [
+                .result(.init(output: "{ }\n", exitStatus: 1, timedOut: false)),
+                .result(.init(output: feishuChannelsListOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-lark", "--json"]): [
+                .result(.init(output: "Plugin not found: openclaw-lark\n", exitStatus: 1, timedOut: false)),
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
+            ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
                 .result(.init(output: "", exitStatus: 1, timedOut: false)),
                 .result(.init(output: "\"cli_new\"\n", exitStatus: 0, timedOut: false)),
@@ -241,6 +253,18 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
             MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
                 .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
                 .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): [
+                .result(.init(output: feishuChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: "{ \"channelOrder\": [] }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): [
+                .result(.init(output: feishuChannelsListOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: "{ \"chat\": {} }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-lark", "--json"]): [
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
                 .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
@@ -375,6 +399,58 @@ private let runningGatewayStatus = """
   "service": {
     "loaded": true,
     "runtime": { "status": "running" }
+  }
+}
+"""
+
+private let feishuChannelsStatusOutput = """
+{
+  "channelOrder": ["feishu"],
+  "channelLabels": {
+    "feishu": "Feishu"
+  },
+  "channels": {
+    "feishu": {
+      "configured": true,
+      "running": true,
+      "lastError": null
+    }
+  },
+  "channelAccounts": {
+    "feishu": [
+      {
+        "accountId": "default",
+        "enabled": true,
+        "configured": true,
+        "running": true,
+        "appId": "cli_new",
+        "brand": "lark",
+        "lastError": null
+      }
+    ]
+  },
+  "channelDefaultAccountId": {
+    "feishu": "default"
+  }
+}
+"""
+
+private let feishuChannelsListOutput = """
+{
+  "chat": {
+    "feishu": ["default"]
+  }
+}
+"""
+
+private let feishuPluginInspectOutput = """
+{
+  "plugin": {
+    "id": "openclaw-lark",
+    "enabled": true,
+    "activated": true,
+    "status": "loaded",
+    "channelIds": ["feishu"]
   }
 }
 """

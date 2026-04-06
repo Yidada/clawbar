@@ -26,6 +26,7 @@ struct MenuPanelSnapshot: Equatable {
     let binaryPath: String?
     let rows: [MenuPanelRowSnapshot]
     let showsInstallAction: Bool
+    let showsUpgradeAction: Bool
     let showsTUIDebugAction: Bool
     let showsUninstallAction: Bool
     let showsSettingsAction: Bool
@@ -62,6 +63,7 @@ enum MenuPanelSnapshotFactory {
                 binaryPath: nil,
                 rows: [],
                 showsInstallAction: false,
+                showsUpgradeAction: false,
                 showsTUIDebugAction: false,
                 showsUninstallAction: false,
                 showsSettingsAction: true,
@@ -82,6 +84,7 @@ enum MenuPanelSnapshotFactory {
                 binaryPath: trimmedNonEmpty(installedBinaryPath),
                 rows: (healthSnapshot?.dimensions ?? []).map(rowSnapshot),
                 showsInstallAction: false,
+                showsUpgradeAction: true,
                 showsTUIDebugAction: true,
                 showsUninstallAction: true,
                 showsSettingsAction: true,
@@ -97,6 +100,7 @@ enum MenuPanelSnapshotFactory {
             binaryPath: nil,
             rows: [],
             showsInstallAction: true,
+            showsUpgradeAction: false,
             showsTUIDebugAction: false,
             showsUninstallAction: false,
             showsSettingsAction: true,

@@ -8,6 +8,7 @@ public struct AppConfiguration: Equatable, Sendable {
     public let menuMissingSubtitle: String
     public let menuRefreshingStatusLabel: String
     public let installLabel: String
+    public let upgradeLabel: String
     public let uninstallLabel: String
     public let tuiDebugLabel: String
     public let applicationLabel: String
@@ -33,6 +34,7 @@ public struct AppConfiguration: Equatable, Sendable {
         menuMissingSubtitle: String,
         menuRefreshingStatusLabel: String,
         installLabel: String,
+        upgradeLabel: String,
         uninstallLabel: String,
         tuiDebugLabel: String,
         applicationLabel: String,
@@ -57,6 +59,7 @@ public struct AppConfiguration: Equatable, Sendable {
         self.menuMissingSubtitle = menuMissingSubtitle
         self.menuRefreshingStatusLabel = menuRefreshingStatusLabel
         self.installLabel = installLabel
+        self.upgradeLabel = upgradeLabel
         self.uninstallLabel = uninstallLabel
         self.tuiDebugLabel = tuiDebugLabel
         self.applicationLabel = applicationLabel
@@ -84,6 +87,7 @@ public struct AppConfiguration: Equatable, Sendable {
             menuMissingSubtitle: "安装后即可在此查看 Provider、Gateway 和 Channel 摘要。",
             menuRefreshingStatusLabel: "正在刷新状态…",
             installLabel: "安装 OpenClaw",
+            upgradeLabel: "升级 OpenClaw",
             uninstallLabel: "卸载 OpenClaw",
             tuiDebugLabel: "启动 TUI",
             applicationLabel: "Settings",

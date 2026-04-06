@@ -17,6 +17,13 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
+    func testUpdateCommandMatchesOfficialCurrentChannelFlow() {
+        XCTAssertEqual(
+            OpenClawInstaller.updateCommand,
+            "openclaw update --yes"
+        )
+    }
+
     func testParseDetectedBinaryPathReturnsTrimmedCommandPath() {
         XCTAssertEqual(
             OpenClawInstaller.parseDetectedBinaryPath("/opt/homebrew/bin/openclaw\n"),
@@ -96,15 +103,11 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
-    func testParseStatusPayloadReadsRuntimeGatewayAndChannelSummary() {
+    func testParseStatusPayloadReadsRuntimeAndGatewayOverview() {
         let output = """
         [plugins] warning
         {
           "runtimeVersion": "2026.4.5",
-          "channelSummary": [
-            "WeChat: configured",
-            "  - default"
-          ],
           "gateway": {
             "reachable": true,
             "url": "ws://127.0.0.1:18789"
@@ -120,10 +123,34 @@ final class OpenClawInstallerTests: XCTestCase {
         let payload = OpenClawInstaller.parseStatusPayload(from: output)
 
         XCTAssertEqual(payload?.runtimeVersion, "2026.4.5")
-        XCTAssertEqual(payload?.channelSummary.first, "WeChat: configured")
         XCTAssertEqual(payload?.gateway.reachable, true)
         XCTAssertEqual(payload?.gateway.url, "ws://127.0.0.1:18789")
         XCTAssertEqual(payload?.gatewayService.runtimeShort, "running (pid 123)")
+    }
+
+    func testParseUpdateStatusPayloadReadsAvailabilityVersionAndChannel() {
+        let output = """
+        {
+          "update": {
+            "registry": {
+              "latestVersion": "2026.4.2"
+            }
+          },
+          "channel": {
+            "label": "stable (default)"
+          },
+          "availability": {
+            "available": true,
+            "latestVersion": "2026.4.2"
+          }
+        }
+        """
+
+        let payload = OpenClawInstaller.parseUpdateStatusPayload(from: output)
+
+        XCTAssertEqual(payload?.isUpdateAvailable, true)
+        XCTAssertEqual(payload?.latestVersion, "2026.4.2")
+        XCTAssertEqual(payload?.channelLabel, "stable (default)")
     }
 
     func testMakeStatusSnapshotBuildsStructuredHealthOverview() {
@@ -131,10 +158,6 @@ final class OpenClawInstallerTests: XCTestCase {
             output: """
             {
               "runtimeVersion": "2026.4.5",
-              "channelSummary": [
-                "WeChat: configured",
-                "  - default"
-              ],
               "gateway": {
                 "reachable": true
               },
@@ -170,10 +193,42 @@ final class OpenClawInstallerTests: XCTestCase {
             pid: 123,
             missingUnit: false
         )
+        let channelSnapshot = OpenClawChannelsSnapshot(
+            orderedChannelIDs: ["wechat"],
+            channelsByID: [
+                "wechat": OpenClawChannelSnapshot(
+                    id: "wechat",
+                    label: "WeChat",
+                    detailLabel: nil,
+                    exists: true,
+                    configured: true,
+                    running: true,
+                    lastError: nil,
+                    defaultAccountID: "default",
+                    accounts: [
+                        OpenClawChannelAccountSnapshot(
+                            accountID: "default",
+                            enabled: true,
+                            configured: true,
+                            running: true,
+                            appID: nil,
+                            brand: nil,
+                            lastError: nil
+                        )
+                    ]
+                )
+            ],
+            statusLoaded: true,
+            listLoaded: true,
+            statusFailureDetail: nil,
+            listFailureDetail: nil,
+            pluginInspections: [:]
+        )
 
         let snapshot = OpenClawInstaller.makeStatusSnapshot(
             binaryPath: "/opt/homebrew/bin/openclaw",
             statusResult: statusResult,
+            channelSnapshot: channelSnapshot,
             providerSnapshot: providerSnapshot,
             gatewaySnapshot: gatewaySnapshot
         )
@@ -185,7 +240,7 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(snapshot.healthSnapshot.dimensions.map(\.dimension), [.provider, .gateway, .channel])
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[0].summary, "OpenRouter / anthropic/claude-sonnet-4-6")
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[1].statusLabel, "可达")
-        XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].summary, "WeChat / 已配置")
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].summary, "WeChat / 已就绪")
     }
 
     func testMakeStatusSnapshotReportsTimeoutAndKeepsPartialHealthView() {
@@ -199,10 +254,20 @@ final class OpenClawInstallerTests: XCTestCase {
             pid: nil,
             missingUnit: true
         )
+        let unavailableChannels = OpenClawChannelsSnapshot(
+            orderedChannelIDs: [],
+            channelsByID: [:],
+            statusLoaded: false,
+            listLoaded: false,
+            statusFailureDetail: "openclaw channels status --json failed",
+            listFailureDetail: "openclaw channels list --json failed",
+            pluginInspections: [:]
+        )
 
         let snapshot = OpenClawInstaller.makeStatusSnapshot(
             binaryPath: "/opt/homebrew/bin/openclaw",
             statusResult: OpenClawChannelCommandResult(output: "", exitStatus: 0, timedOut: true),
+            channelSnapshot: unavailableChannels,
             providerSnapshot: nil,
             gatewaySnapshot: gatewaySnapshot
         )
@@ -265,6 +330,37 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(installer.installedBinaryPath, "/opt/homebrew/bin/openclaw")
         XCTAssertEqual(installer.healthSnapshot, .deterministicInstalled)
         XCTAssertNotNil(installer.lastStatusRefreshDate)
+    }
+
+    func testRefreshInstallationStatusLoadsUpdateAvailabilityAlongsideInstalledSnapshot() async {
+        let installer = OpenClawInstaller(
+            autoStartTimer: false,
+            detectBinaryPath: { _ in "/opt/homebrew/bin/openclaw" },
+            fetchStatusSnapshot: { _, _ in
+                OpenClawStatusSnapshot(
+                    title: "OpenClaw 已安装",
+                    detail: "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+                    excerpt: "OpenClaw 2026.4.2",
+                    binaryPath: "/opt/homebrew/bin/openclaw",
+                    healthSnapshot: .deterministicInstalled
+                )
+            },
+            fetchUpdateStatusSnapshot: { _, _ in
+                OpenClawUpdateStatusSnapshot(
+                    isUpdateAvailable: true,
+                    latestVersion: "2026.4.3",
+                    channelLabel: "stable (default)"
+                )
+            }
+        )
+
+        installer.refreshInstallationStatus(force: true)
+        await waitForCondition { installer.latestVersion == "2026.4.3" }
+
+        XCTAssertTrue(installer.isInstalled)
+        XCTAssertEqual(installer.isUpdateAvailable, true)
+        XCTAssertEqual(installer.latestVersion, "2026.4.3")
+        XCTAssertEqual(installer.channelLabel, "stable (default)")
     }
 
     func testPrepareGatewayServiceReturnsReadyWhenInstallRegistersLaunchAgent() {
@@ -358,14 +454,81 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(installer.detailText, "点击按钮后会执行官方安装脚本，但不会进入 onboarding。")
     }
 
+    func testRefreshInstallationStatusKeepsInstalledStateWhenUpdateStatusIsUnavailable() async {
+        let installer = OpenClawInstaller(
+            autoStartTimer: false,
+            detectBinaryPath: { _ in "/opt/homebrew/bin/openclaw" },
+            fetchStatusSnapshot: { _, _ in
+                OpenClawStatusSnapshot(
+                    title: "OpenClaw 已安装",
+                    detail: "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+                    excerpt: "OpenClaw 2026.4.2",
+                    binaryPath: "/opt/homebrew/bin/openclaw",
+                    healthSnapshot: .deterministicInstalled
+                )
+            },
+            fetchUpdateStatusSnapshot: { _, _ in nil }
+        )
+
+        installer.refreshInstallationStatus(force: true)
+        await waitForCondition { installer.lastStatusRefreshDate != nil }
+
+        XCTAssertTrue(installer.isInstalled)
+        XCTAssertNil(installer.isUpdateAvailable)
+        XCTAssertNil(installer.latestVersion)
+        XCTAssertNil(installer.channelLabel)
+        XCTAssertEqual(installer.statusText, "OpenClaw 已安装")
+    }
+
+    func testStartUpdateIfNeededMarksInstallerBusyDuringUpgrade() async {
+        let installer = OpenClawInstaller(
+            autoStartTimer: false,
+            processFactory: { _, _, environment, _, completion in
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-lc", "sleep 0.1"]
+                process.environment = environment
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                process.terminationHandler = { _ in
+                    completion(.success(()))
+                }
+                return process
+            }
+        )
+
+        installer.startUpdateIfNeeded()
+
+        XCTAssertTrue(installer.isUpdating)
+        XCTAssertTrue(installer.isBusy)
+
+        await waitForCondition { !installer.isUpdating }
+        XCTAssertFalse(installer.isBusy)
+    }
+
     func testSharedInstallerStartsWithUserFacingIdleMessages() {
         let installer = OpenClawInstaller(autoStartTimer: false)
 
         XCTAssertFalse(installer.isInstalling)
+        XCTAssertFalse(installer.isUpdating)
         XCTAssertFalse(installer.isUninstalling)
         XCTAssertFalse(installer.isInstalled)
         XCTAssertNil(installer.lastStatusRefreshDate)
         XCTAssertEqual(installer.statusText, "准备安装 OpenClaw。")
         XCTAssertEqual(installer.detailText, "点击按钮后会执行官方安装脚本，但不会进入 onboarding。")
+    }
+
+    private func waitForCondition(
+        timeout: TimeInterval = 1,
+        pollInterval: UInt64 = 10_000_000,
+        _ condition: @escaping @MainActor () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            try? await Task.sleep(nanoseconds: pollInterval)
+        }
     }
 }

@@ -2,12 +2,15 @@ import Foundation
 
 private enum OpenClawOperation {
     case install
+    case update
     case uninstall
 
     var command: String {
         switch self {
         case .install:
             OpenClawInstaller.installCommand
+        case .update:
+            OpenClawInstaller.updateCommand
         case .uninstall:
             OpenClawInstaller.uninstallCommand
         }
@@ -17,6 +20,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "安装"
+        case .update:
+            "升级"
         case .uninstall:
             "卸载"
         }
@@ -26,6 +31,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             OpenClawInstaller.defaultLogURL(filename: "openclaw-install.log")
+        case .update:
+            OpenClawInstaller.defaultLogURL(filename: "openclaw-update.log")
         case .uninstall:
             OpenClawInstaller.defaultLogURL(filename: "openclaw-uninstall.log")
         }
@@ -35,6 +42,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "安装日志"
+        case .update:
+            "升级日志"
         case .uninstall:
             "卸载日志"
         }
@@ -44,6 +53,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "等待安装输出..."
+        case .update:
+            "等待升级输出..."
         case .uninstall:
             "等待卸载输出..."
         }
@@ -53,6 +64,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "准备安装 OpenClaw。"
+        case .update:
+            "准备升级 OpenClaw。"
         case .uninstall:
             "准备卸载 OpenClaw。"
         }
@@ -62,6 +75,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "点击按钮后会执行官方安装脚本，但不会进入 onboarding。"
+        case .update:
+            "点击按钮后会执行 openclaw update --yes，沿用当前更新通道并复用官方升级流程。"
         case .uninstall:
             "点击按钮后会执行官方非交互卸载，并移除全局 openclaw CLI。"
         }
@@ -71,6 +86,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "正在启动 OpenClaw 安装..."
+        case .update:
+            "正在启动 OpenClaw 升级..."
         case .uninstall:
             "正在启动 OpenClaw 卸载..."
         }
@@ -80,6 +97,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "这会执行官方安装脚本，并把输出实时写入日志窗口。"
+        case .update:
+            "这会执行官方升级命令，并把输出实时写入日志窗口。"
         case .uninstall:
             "这会执行官方非交互卸载命令，并把输出实时写入日志窗口。"
         }
@@ -89,6 +108,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "正在安装 OpenClaw..."
+        case .update:
+            "正在升级 OpenClaw..."
         case .uninstall:
             "正在卸载 OpenClaw..."
         }
@@ -98,6 +119,8 @@ private enum OpenClawOperation {
         switch self {
         case .install:
             "官方脚本没有稳定的百分比接口，所以这里显示实时输出和当前状态。"
+        case .update:
+            "官方升级流程会自行处理预检、包管理器更新和必要的 Gateway 重启。"
         case .uninstall:
             "卸载过程会清理本机 OpenClaw 数据，并移除全局 CLI。"
         }
@@ -110,6 +133,12 @@ struct OpenClawStatusSnapshot: Equatable, Sendable {
     let excerpt: String?
     let binaryPath: String
     let healthSnapshot: OpenClawHealthSnapshot
+}
+
+struct OpenClawUpdateStatusSnapshot: Equatable, Sendable {
+    let isUpdateAvailable: Bool
+    let latestVersion: String?
+    let channelLabel: String?
 }
 
 struct OpenClawGatewayPreparationResult: Equatable, Sendable {
@@ -171,6 +200,17 @@ enum OpenClawInstallerError: LocalizedError {
 
 @MainActor
 final class OpenClawInstaller: ObservableObject {
+    typealias BinaryPathDetector = @Sendable ([String: String]) -> String?
+    typealias StatusSnapshotFetcher = @Sendable (String, [String: String]) -> OpenClawStatusSnapshot
+    typealias UpdateStatusSnapshotFetcher = @Sendable (String, [String: String]) -> OpenClawUpdateStatusSnapshot?
+    typealias ProcessFactory = @Sendable (
+        _ command: String,
+        _ logURL: URL,
+        _ environment: [String: String],
+        _ outputHandler: @escaping @Sendable (String) -> Void,
+        _ completion: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) throws -> Process
+
     struct StatusPayloadSnapshot: Equatable, Sendable {
         struct GatewaySnapshot: Equatable, Sendable {
             let reachable: Bool?
@@ -185,15 +225,8 @@ final class OpenClawInstaller: ObservableObject {
         }
 
         let runtimeVersion: String?
-        let channelSummary: [String]
         let gateway: GatewaySnapshot
         let gatewayService: GatewayServiceSnapshot
-    }
-
-    struct ChannelSummaryEntry: Equatable, Sendable {
-        let label: String
-        let status: String
-        let accountLabel: String?
     }
 
     static let shared: OpenClawInstaller = {
@@ -204,18 +237,24 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let defaultRefreshInterval: TimeInterval = 30
     nonisolated static let installScriptURL = URL(string: "https://openclaw.ai/install.sh")!
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
+    nonisolated static let updateCommand = "openclaw update --yes"
     nonisolated static let uninstallCommand = "openclaw uninstall --all --yes --non-interactive && npm rm -g openclaw"
     nonisolated static let detectCommand = "command -v openclaw"
     nonisolated static let gatewayInstallCommand = "openclaw gateway install --json"
     nonisolated static let statusArguments = ["status", "--json"]
+    nonisolated static let updateStatusArguments = ["update", "status", "--json"]
     nonisolated static let providerStatusArguments = ["models", "status", "--json"]
     nonisolated static let gatewayStatusArguments = ["gateway", "status", "--json", "--no-probe"]
     nonisolated static let statusCommandTimeout: TimeInterval = 30
 
     @Published private(set) var isInstalling = false
+    @Published private(set) var isUpdating = false
     @Published private(set) var isUninstalling = false
     @Published private(set) var isInstalled = false
     @Published private(set) var isRefreshingStatus = false
+    @Published private(set) var isUpdateAvailable: Bool?
+    @Published private(set) var latestVersion: String?
+    @Published private(set) var channelLabel: String?
     @Published private(set) var statusText = OpenClawOperation.install.idleStatusText
     @Published private(set) var detailText = OpenClawOperation.install.idleDetailText
     @Published private(set) var installedBinaryPath: String?
@@ -230,6 +269,10 @@ final class OpenClawInstaller: ObservableObject {
     private let refreshInterval: TimeInterval
     private let nowProvider: @Sendable () -> Date
     private let overrideState: OpenClawInstallerOverride?
+    private let detectBinaryPath: BinaryPathDetector
+    private let fetchStatusSnapshot: StatusSnapshotFetcher
+    private let fetchUpdateStatusSnapshot: UpdateStatusSnapshotFetcher
+    private let processFactory: ProcessFactory
     private var refreshTimer: Timer?
     private var lastOperation: OpenClawOperation = .install
 
@@ -237,11 +280,19 @@ final class OpenClawInstaller: ObservableObject {
         refreshInterval: TimeInterval = OpenClawInstaller.defaultRefreshInterval,
         nowProvider: @escaping @Sendable () -> Date = Date.init,
         overrideState: OpenClawInstallerOverride? = nil,
-        autoStartTimer: Bool = true
+        autoStartTimer: Bool = true,
+        detectBinaryPath: @escaping BinaryPathDetector = OpenClawInstaller.detectInstalledBinaryPath,
+        fetchStatusSnapshot: @escaping StatusSnapshotFetcher = OpenClawInstaller.fetchStatusSnapshot,
+        fetchUpdateStatusSnapshot: @escaping UpdateStatusSnapshotFetcher = OpenClawInstaller.fetchUpdateStatusSnapshot,
+        processFactory: @escaping ProcessFactory = OpenClawInstaller.makeProcess
     ) {
         self.refreshInterval = refreshInterval
         self.nowProvider = nowProvider
         self.overrideState = overrideState
+        self.detectBinaryPath = detectBinaryPath
+        self.fetchStatusSnapshot = fetchStatusSnapshot
+        self.fetchUpdateStatusSnapshot = fetchUpdateStatusSnapshot
+        self.processFactory = processFactory
 
         if autoStartTimer, overrideState == nil {
             startPeriodicRefresh()
@@ -249,7 +300,7 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     var isBusy: Bool {
-        isInstalling || isUninstalling
+        isInstalling || isUpdating || isUninstalling
     }
 
     var operationLogTitle: String {
@@ -260,6 +311,8 @@ final class OpenClawInstaller: ObservableObject {
         switch activeOperation {
         case .install:
             "说明：官方安装脚本没有提供稳定的百分比进度，所以这里展示实时输出和当前状态。"
+        case .update:
+            "说明：升级流程完全复用 openclaw update 的官方逻辑，包括预检、包管理器更新和必要的服务重启。"
         case .uninstall:
             "说明：卸载会先执行 OpenClaw 官方非交互卸载，再移除通过安装脚本落下的全局 CLI。"
         }
@@ -287,12 +340,18 @@ final class OpenClawInstaller: ObservableObject {
         }
 
         let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
+        let detectBinaryPath = self.detectBinaryPath
+        let fetchStatusSnapshot = self.fetchStatusSnapshot
+        let fetchUpdateStatusSnapshot = self.fetchUpdateStatusSnapshot
         isRefreshingStatus = true
 
         Task.detached(priority: .utility) {
-            let path = Self.detectInstalledBinaryPath(environment: environment)
+            let path = detectBinaryPath(environment)
             let snapshot = path.map { binaryPath in
-                Self.fetchStatusSnapshot(binaryPath: binaryPath, environment: environment)
+                fetchStatusSnapshot(binaryPath, environment)
+            }
+            let updateSnapshot = path.flatMap { binaryPath in
+                fetchUpdateStatusSnapshot(binaryPath, environment)
             }
 
             await MainActor.run {
@@ -302,6 +361,7 @@ final class OpenClawInstaller: ObservableObject {
                 self.installedBinaryPath = path
                 self.statusExcerpt = snapshot?.excerpt
                 self.healthSnapshot = snapshot?.healthSnapshot
+                self.applyUpdateStatus(updateSnapshot)
 
                 guard !self.isBusy else { return }
 
@@ -326,6 +386,7 @@ final class OpenClawInstaller: ObservableObject {
             installedBinaryPath = nil
             statusExcerpt = nil
             healthSnapshot = nil
+            clearUpdateStatus()
             if !isBusy {
                 statusText = OpenClawOperation.install.idleStatusText
                 detailText = OpenClawOperation.install.idleDetailText
@@ -335,6 +396,7 @@ final class OpenClawInstaller: ObservableObject {
             installedBinaryPath = snapshot.binaryPath
             statusExcerpt = snapshot.excerpt
             healthSnapshot = snapshot.healthSnapshot
+            clearUpdateStatus()
             if !isBusy {
                 statusText = snapshot.title
                 detailText = snapshot.detail
@@ -345,7 +407,7 @@ final class OpenClawInstaller: ObservableObject {
     func startInstallIfNeeded() {
         if isBusy {
             statusText = "OpenClaw 正在处理中。"
-            detailText = "请等待当前安装或卸载流程结束。"
+            detailText = "请等待当前安装、升级或卸载流程结束。"
             return
         }
 
@@ -355,11 +417,21 @@ final class OpenClawInstaller: ObservableObject {
     func startUninstallIfNeeded() {
         if isBusy {
             statusText = "OpenClaw 正在处理中。"
-            detailText = "请等待当前安装或卸载流程结束。"
+            detailText = "请等待当前安装、升级或卸载流程结束。"
             return
         }
 
         startOperation(.uninstall)
+    }
+
+    func startUpdateIfNeeded() {
+        if isBusy {
+            statusText = "OpenClaw 正在处理中。"
+            detailText = "请等待当前安装、升级或卸载流程结束。"
+            return
+        }
+
+        startOperation(.update)
     }
 
     nonisolated static func defaultLogURL(filename: String) -> URL {
@@ -443,6 +515,7 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static func makeStatusSnapshot(
         binaryPath: String,
         statusResult: OpenClawChannelCommandResult,
+        channelSnapshot: OpenClawChannelsSnapshot,
         providerSnapshot: OpenClawProviderSnapshot?,
         gatewaySnapshot: OpenClawGatewayStatusSnapshot?
     ) -> OpenClawStatusSnapshot {
@@ -450,6 +523,7 @@ final class OpenClawInstaller: ObservableObject {
         let statusPayload = parseStatusPayload(from: statusResult.output)
         let healthSnapshot = buildHealthSnapshot(
             statusPayload: statusPayload,
+            channelSnapshot: channelSnapshot,
             providerSnapshot: providerSnapshot,
             gatewaySnapshot: gatewaySnapshot
         )
@@ -483,7 +557,6 @@ final class OpenClawInstaller: ObservableObject {
 
         return StatusPayloadSnapshot(
             runtimeVersion: trimmedNonEmpty(payload["runtimeVersion"] as? String),
-            channelSummary: payload["channelSummary"] as? [String] ?? [],
             gateway: StatusPayloadSnapshot.GatewaySnapshot(
                 reachable: gatewayPayload?["reachable"] as? Bool,
                 error: trimmedNonEmpty(gatewayPayload?["error"] as? String),
@@ -497,63 +570,29 @@ final class OpenClawInstaller: ObservableObject {
         )
     }
 
-    nonisolated static func parseChannelSummaryEntries(_ lines: [String]) -> [ChannelSummaryEntry] {
-        var entries: [ChannelSummaryEntry] = []
-        var index = 0
-
-        while index < lines.count {
-            let line = lines[index]
-            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedLine.isEmpty else {
-                index += 1
-                continue
-            }
-
-            guard line.first?.isWhitespace != true,
-                  let colonIndex = trimmedLine.firstIndex(of: ":") else {
-                index += 1
-                continue
-            }
-
-            let label = String(trimmedLine[..<colonIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let rawStatus = String(trimmedLine[trimmedLine.index(after: colonIndex)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            var accountLabel: String?
-            var nextIndex = index + 1
-
-            while nextIndex < lines.count {
-                let nextLine = lines[nextIndex]
-                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !nextTrimmed.isEmpty else {
-                    nextIndex += 1
-                    continue
-                }
-                guard nextLine.first?.isWhitespace == true else { break }
-
-                if accountLabel == nil {
-                    let normalized = nextTrimmed.hasPrefix("-")
-                        ? String(nextTrimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-                        : nextTrimmed
-                    accountLabel = trimmedNonEmpty(normalized)
-                }
-                nextIndex += 1
-            }
-
-            entries.append(
-                ChannelSummaryEntry(
-                    label: label,
-                    status: rawStatus.lowercased(),
-                    accountLabel: accountLabel
-                )
-            )
-            index = nextIndex
+    nonisolated static func parseUpdateStatusPayload(from output: String) -> OpenClawUpdateStatusSnapshot? {
+        let jsonString = ChannelCommandSupport.extractTrailingJSONObjectString(from: output) ?? output
+        guard let payload = ChannelCommandSupport.parseJSONObject(from: jsonString),
+              let availability = payload["availability"] as? [String: Any] else {
+            return nil
         }
 
-        return entries
+        let channel = payload["channel"] as? [String: Any]
+        let update = payload["update"] as? [String: Any]
+        let registry = update?["registry"] as? [String: Any]
+        let latestVersion = trimmedNonEmpty(availability["latestVersion"] as? String)
+            ?? trimmedNonEmpty(registry?["latestVersion"] as? String)
+
+        return OpenClawUpdateStatusSnapshot(
+            isUpdateAvailable: availability["available"] as? Bool ?? false,
+            latestVersion: latestVersion,
+            channelLabel: trimmedNonEmpty(channel?["label"] as? String)
+        )
     }
 
     nonisolated static func buildHealthSnapshot(
         statusPayload: StatusPayloadSnapshot?,
+        channelSnapshot: OpenClawChannelsSnapshot,
         providerSnapshot: OpenClawProviderSnapshot?,
         gatewaySnapshot: OpenClawGatewayStatusSnapshot?
     ) -> OpenClawHealthSnapshot {
@@ -562,7 +601,7 @@ final class OpenClawInstaller: ObservableObject {
             dimensions: [
                 makeProviderHealthDimension(providerSnapshot),
                 makeGatewayHealthDimension(statusPayload: statusPayload, gatewaySnapshot: gatewaySnapshot),
-                makeChannelHealthDimension(statusPayload: statusPayload),
+                makeChannelHealthDimension(channelSnapshot: channelSnapshot),
             ]
         )
     }
@@ -688,45 +727,70 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     private nonisolated static func makeChannelHealthDimension(
-        statusPayload: StatusPayloadSnapshot?
+        channelSnapshot: OpenClawChannelsSnapshot
     ) -> OpenClawHealthDimensionSnapshot {
-        guard let statusPayload else {
+        guard channelSnapshot.hasUsableChannelData else {
             return OpenClawHealthDimensionSnapshot(
                 dimension: .channel,
                 level: .unknown,
                 statusLabel: "未知",
-                summary: "未能读取 Channel 摘要",
-                detail: "Clawbar 尚未拿到 openclaw status --json 的 Channel 汇总。"
+                summary: "未能读取 Channel 运行态",
+                detail: firstNonEmpty([
+                    channelSnapshot.statusFailureDetail,
+                    channelSnapshot.listFailureDetail,
+                ]) ?? "Clawbar 尚未拿到 openclaw channels status/list --json 的结果。"
             )
         }
 
-        let entries = parseChannelSummaryEntries(statusPayload.channelSummary)
-        guard !entries.isEmpty else {
+        let channels = orderedChannels(from: channelSnapshot)
+        guard !channels.isEmpty else {
             return OpenClawHealthDimensionSnapshot(
                 dimension: .channel,
                 level: .warning,
                 statusLabel: "未配置",
-                summary: "未检测到已启用 Channel",
-                detail: "当前 status 结果里还没有可展示的 Channel 摘要。"
+                summary: "未检测到已配置 Channel",
+                detail: "当前 channels status/list 结果里还没有可展示的 Channel。"
             )
         }
 
-        let readyEntries = entries.filter { isReadyChannelStatus($0.status) }
-        let statusLabel = readyEntries.isEmpty ? "待配置" : "已就绪"
-        let level: OpenClawHealthLevel = readyEntries.isEmpty ? .warning : .healthy
-        let summary: String
+        let readyChannels = channels.filter { $0.configured && $0.running }
+        let configuredChannels = channels.filter(\.configured)
+        let statusLabel: String
+        let level: OpenClawHealthLevel
 
-        if entries.count == 1, let entry = entries.first {
-            summary = "\(entry.label) / \(displayChannelStatus(entry.status))"
+        if !readyChannels.isEmpty {
+            statusLabel = "已就绪"
+            level = .healthy
+        } else if !configuredChannels.isEmpty {
+            statusLabel = "待恢复"
+            level = .warning
         } else {
-            summary = "\(readyEntries.count)/\(entries.count) 个 Channel 已就绪"
+            statusLabel = "未配置"
+            level = .warning
         }
 
-        let detail = entries.prefix(2).map { entry in
-            if let accountLabel = entry.accountLabel {
-                return "\(entry.label): \(displayChannelStatus(entry.status)) (\(accountLabel))"
+        let summary: String
+        if channels.count == 1, let channel = channels.first {
+            summary = "\(channel.label) / \(displayChannelStatus(channel))"
+        } else if !readyChannels.isEmpty {
+            summary = "\(readyChannels.count)/\(channels.count) 个 Channel 已就绪"
+        } else if !configuredChannels.isEmpty {
+            summary = "\(configuredChannels.count)/\(channels.count) 个 Channel 已配置"
+        } else {
+            summary = "未检测到已配置 Channel"
+        }
+
+        let detail = channels.prefix(2).map { channel in
+            var segments = ["\(channel.label): \(displayChannelStatus(channel))"]
+            if let accountLabel = trimmedNonEmpty(channel.primaryAccount?.displayLabel) {
+                segments.append("(\(accountLabel))")
+            } else if let accountID = trimmedNonEmpty(channel.defaultAccountID) {
+                segments.append("(\(accountID))")
             }
-            return "\(entry.label): \(displayChannelStatus(entry.status))"
+            if let lastError = trimmedNonEmpty(channel.lastError), !channel.running {
+                segments.append("- \(lastError)")
+            }
+            return segments.joined(separator: " ")
         }.joined(separator: " · ")
 
         return OpenClawHealthDimensionSnapshot(
@@ -734,7 +798,7 @@ final class OpenClawInstaller: ObservableObject {
             level: level,
             statusLabel: statusLabel,
             summary: summary,
-            detail: trimmedNonEmpty(detail) ?? "当前 status 结果里还没有可展示的 Channel 摘要。"
+            detail: trimmedNonEmpty(detail) ?? "当前 channels status/list 结果里还没有可展示的 Channel。"
         )
     }
 
@@ -754,30 +818,27 @@ final class OpenClawInstaller: ObservableObject {
             ?? providerID.capitalized
     }
 
-    private nonisolated static func isReadyChannelStatus(_ status: String) -> Bool {
-        switch status {
-        case "linked", "configured":
-            true
-        default:
-            false
+    private nonisolated static func displayChannelStatus(_ channel: OpenClawChannelSnapshot) -> String {
+        if channel.configured && channel.running {
+            return "已就绪"
         }
+        if channel.configured {
+            return "已配置"
+        }
+        return "未配置"
     }
 
-    private nonisolated static func displayChannelStatus(_ status: String) -> String {
-        switch status {
-        case "linked":
-            "已连接"
-        case "configured":
-            "已配置"
-        case "not linked":
-            "未连接"
-        case "not configured":
-            "未配置"
-        case "disabled":
-            "已禁用"
-        default:
-            status
-        }
+    private nonisolated static func orderedChannels(
+        from snapshot: OpenClawChannelsSnapshot
+    ) -> [OpenClawChannelSnapshot] {
+        let preferred = snapshot.orderedChannelIDs.compactMap { snapshot.channelsByID[$0] }
+        let remainder = snapshot.channelsByID
+            .filter { !snapshot.orderedChannelIDs.contains($0.key) }
+            .values
+            .sorted { lhs, rhs in
+                lhs.label.localizedStandardCompare(rhs.label) == .orderedAscending
+            }
+        return preferred + remainder
     }
 
     private nonisolated static func firstNonEmpty(_ values: [String?]) -> String? {
@@ -917,15 +978,35 @@ final class OpenClawInstaller: ObservableObject {
             environment,
             statusCommandTimeout
         )
+        let channelSnapshot = OpenClawChannelsSnapshotSupport.fetchSnapshot(
+            openClawBinaryPath: binaryPath,
+            environment: environment,
+            runCommand: ChannelCommandSupport.runCommand
+        )
         let providerSnapshot = fetchProviderStatusSnapshot(binaryPath: binaryPath, environment: environment)
         let gatewaySnapshot = fetchGatewayStatusSnapshot(binaryPath: binaryPath, environment: environment)
 
         return makeStatusSnapshot(
             binaryPath: binaryPath,
             statusResult: statusResult,
+            channelSnapshot: channelSnapshot,
             providerSnapshot: providerSnapshot,
             gatewaySnapshot: gatewaySnapshot
         )
+    }
+
+    private nonisolated static func fetchUpdateStatusSnapshot(
+        binaryPath: String,
+        environment: [String: String]
+    ) -> OpenClawUpdateStatusSnapshot? {
+        let result = ChannelCommandSupport.runCommand(
+            binaryPath,
+            updateStatusArguments,
+            environment,
+            5
+        )
+        guard !result.timedOut, result.exitStatus == 0 else { return nil }
+        return parseUpdateStatusPayload(from: result.output)
     }
 
     private nonisolated static func fetchProviderStatusSnapshot(
@@ -1048,6 +1129,16 @@ final class OpenClawInstaller: ObservableObject {
         logText += chunk
     }
 
+    private func applyUpdateStatus(_ snapshot: OpenClawUpdateStatusSnapshot?) {
+        isUpdateAvailable = snapshot?.isUpdateAvailable
+        latestVersion = snapshot?.latestVersion
+        channelLabel = snapshot?.channelLabel
+    }
+
+    private func clearUpdateStatus() {
+        applyUpdateStatus(nil)
+    }
+
     private var activeOperation: OpenClawOperation {
         lastOperation
     }
@@ -1062,17 +1153,17 @@ final class OpenClawInstaller: ObservableObject {
         detailText = operation.startingDetailText
 
         do {
-            let process = try Self.makeProcess(
-                command: operation.command,
-                logURL: logURL,
-                environment: environment,
-                outputHandler: { [weak self] chunk in
+            let process = try processFactory(
+                operation.command,
+                logURL,
+                environment,
+                { [weak self] chunk in
                     Task { @MainActor in
                         guard let self else { return }
                         self.appendLog(chunk)
                     }
                 },
-                completion: { [weak self] result in
+                { [weak self] result in
                     Task { @MainActor in
                         guard let self else { return }
                         self.finishOperation(operation, with: result, logURL: logURL)
@@ -1083,6 +1174,7 @@ final class OpenClawInstaller: ObservableObject {
             try process.run()
             activeProcess = process
             isInstalling = operation == .install
+            isUpdating = operation == .update
             isUninstalling = operation == .uninstall
             statusText = operation.runningStatusText
             detailText = operation.runningDetailText
@@ -1176,8 +1268,31 @@ final class OpenClawInstaller: ObservableObject {
         switch operation {
         case .install:
             finishInstall(with: result, logURL: logURL)
+        case .update:
+            finishUpdate(with: result, logURL: logURL)
         case .uninstall:
             finishUninstall(with: result, logURL: logURL)
+        }
+    }
+
+    private func finishUpdate(with result: Result<Void, Error>, logURL: URL) {
+        activeProcess = nil
+        outputHandle = nil
+        lastLogURL = logURL
+        isInstalling = false
+        isUpdating = false
+        isUninstalling = false
+
+        switch result {
+        case .success:
+            statusText = "OpenClaw 升级完成。"
+            detailText = "官方升级流程已完成，正在刷新本机状态。"
+            logText += "\n[Clawbar] OpenClaw 升级完成。\n"
+            refreshInstallationStatus(force: true)
+        case let .failure(error):
+            statusText = "OpenClaw 升级失败。"
+            detailText = error.localizedDescription
+            logText += "\n[Clawbar] \(error.localizedDescription)\n"
         }
     }
 
@@ -1186,6 +1301,7 @@ final class OpenClawInstaller: ObservableObject {
         outputHandle = nil
         lastLogURL = logURL
         isInstalling = false
+        isUpdating = false
         isUninstalling = false
 
         switch result {
@@ -1194,6 +1310,7 @@ final class OpenClawInstaller: ObservableObject {
             installedBinaryPath = nil
             statusExcerpt = nil
             healthSnapshot = nil
+            clearUpdateStatus()
             lastStatusRefreshDate = nowProvider()
             statusText = "OpenClaw 已卸载。"
             detailText = "官方卸载流程和全局 CLI 移除已完成。"
@@ -1209,6 +1326,9 @@ final class OpenClawInstaller: ObservableObject {
     private nonisolated static func operationName(for command: String) -> String {
         if command == uninstallCommand {
             return OpenClawOperation.uninstall.actionName
+        }
+        if command == updateCommand {
+            return OpenClawOperation.update.actionName
         }
         return OpenClawOperation.install.actionName
     }

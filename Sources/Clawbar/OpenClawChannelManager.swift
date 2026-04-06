@@ -40,9 +40,10 @@ struct OpenClawWeixinStatusPayload: Equatable, Sendable {
     }
 
     let runtimeVersion: String?
-    let channelSummary: [String]
     let gateway: GatewaySnapshot
     let gatewayService: GatewayServiceSnapshot
+    let channelSnapshot: OpenClawChannelSnapshot?
+    let pluginInspection: OpenClawPluginInspectionSnapshot?
 }
 
 enum OpenClawWeixinDerivedState: Equatable, Sendable {
@@ -181,7 +182,7 @@ final class OpenClawChannelManager: ObservableObject {
     var steadyStatusDetail: String {
         switch cardState {
         case .refreshing:
-            return "正在读取 openclaw status --json。"
+            return "正在读取 openclaw channels status/list --json。"
         case .missingCLI:
             return "请先安装 OpenClaw，再继续微信能力安装和绑定。"
         case .statusCommandFailed(let detail):
@@ -189,9 +190,9 @@ final class OpenClawChannelManager: ObservableObject {
         case .jsonParseFailed(let detail):
             return detail
         case .pluginMissing:
-            return "当前 status 结果里没有发现 openclaw-weixin；可以直接开始安装微信能力。"
+            return "当前没有发现已激活的微信插件；可以直接开始安装微信能力。"
         case .pluginPresentButNotConfigured:
-            return "当前 status 结果显示微信能力已存在，但还没有完成扫码绑定。"
+            return "微信插件已存在，但 runtime 里还没有已配置账号。"
         case .pluginConfiguredGatewayReachable(let accountLabel):
             if let accountLabel = trimmedNonEmpty(accountLabel) {
                 return "已检测到 \(accountLabel)，并且 Gateway 当前可达。"
@@ -512,10 +513,10 @@ final class OpenClawChannelManager: ObservableObject {
             switch derivedState {
             case .pluginMissing:
                 lastActionSummary = "微信能力未安装"
-                lastActionDetail = "当前 status 结果里没有发现 openclaw-weixin。"
+                lastActionDetail = "当前没有发现已激活的微信插件。"
             case .pluginPresentButNotConfigured:
                 lastActionSummary = "等待微信绑定"
-                lastActionDetail = "当前 status 结果显示微信能力已存在，但还没有完成扫码绑定。"
+                lastActionDetail = "微信插件已存在，但 runtime 里还没有已配置账号。"
             case .pluginConfiguredGatewayReachable(let accountLabel):
                 lastActionSummary = "微信已可用"
                 if let accountLabel = trimmedNonEmpty(accountLabel) {
@@ -605,8 +606,21 @@ final class OpenClawChannelManager: ObservableObject {
             return .jsonParseFailed(detail: detail)
         }
 
-        let derivedState = deriveState(from: payload)
-        return .success(payload: payload, derivedState: derivedState)
+        let channelsSnapshot = OpenClawChannelsSnapshotSupport.fetchSnapshot(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            pluginIDs: [wechatChannelID]
+        )
+        let resolvedPayload = OpenClawWeixinStatusPayload(
+            runtimeVersion: payload.runtimeVersion,
+            gateway: payload.gateway,
+            gatewayService: payload.gatewayService,
+            channelSnapshot: channelsSnapshot.channel(id: wechatChannelID),
+            pluginInspection: channelsSnapshot.pluginInspection(id: wechatChannelID)
+        )
+        let derivedState = deriveState(from: resolvedPayload)
+        return .success(payload: resolvedPayload, derivedState: derivedState)
     }
 
     nonisolated static func parseStatusPayload(from output: String) -> OpenClawWeixinStatusPayload? {
@@ -641,63 +655,38 @@ final class OpenClawChannelManager: ObservableObject {
 
         return OpenClawWeixinStatusPayload(
             runtimeVersion: trimmedNonEmpty(payload["runtimeVersion"] as? String),
-            channelSummary: payload["channelSummary"] as? [String] ?? [],
             gateway: gateway,
-            gatewayService: gatewayService
+            gatewayService: gatewayService,
+            channelSnapshot: nil,
+            pluginInspection: nil
         )
     }
 
     nonisolated static func deriveState(from payload: OpenClawWeixinStatusPayload) -> OpenClawWeixinDerivedState {
-        guard let channelStatus = parseChannelSummary(payload.channelSummary) else {
+        let pluginInspection = payload.pluginInspection
+
+        guard let channelStatus = payload.channelSnapshot else {
+            if pluginInspection?.isActive == true {
+                return .pluginPresentButNotConfigured
+            }
             return .pluginMissing
         }
 
-        if channelStatus.status == "configured" {
-            if payload.gateway.reachable == true {
-                return .pluginConfiguredGatewayReachable(accountLabel: channelStatus.accountLabel)
-            }
-
-            return .pluginConfiguredGatewayUnreachable(
-                accountLabel: channelStatus.accountLabel,
-                gatewayDetail: payload.gateway.error ?? payload.gatewayService.runtimeShort
-            )
+        guard channelStatus.configured else {
+            return pluginInspection?.exists == true ? .pluginPresentButNotConfigured : .pluginMissing
         }
 
-        return .pluginPresentButNotConfigured
-    }
+        let accountLabel = channelStatus.primaryAccount?.displayLabel
+            ?? trimmedNonEmpty(channelStatus.defaultAccountID)
 
-    nonisolated static func parseChannelSummary(_ lines: [String]) -> (status: String, accountLabel: String?)? {
-        for (index, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.lowercased().hasPrefix("\(wechatChannelID):") else { continue }
-
-            let parts = trimmed.split(separator: ":", maxSplits: 1).map(String.init)
-            let status = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() : ""
-
-            var accountLabel: String?
-            var nextIndex = index + 1
-            while nextIndex < lines.count {
-                let nextLine = lines[nextIndex]
-                let nextTrimmed = nextLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                if nextTrimmed.isEmpty {
-                    nextIndex += 1
-                    continue
-                }
-                guard nextLine.first?.isWhitespace == true else { break }
-
-                if accountLabel == nil {
-                    let normalized = nextTrimmed.hasPrefix("-")
-                        ? String(nextTrimmed.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
-                        : nextTrimmed
-                    accountLabel = trimmedNonEmpty(normalized)
-                }
-                nextIndex += 1
-            }
-
-            return (status: status, accountLabel: accountLabel)
+        if channelStatus.running {
+            return .pluginConfiguredGatewayReachable(accountLabel: accountLabel)
         }
 
-        return nil
+        return .pluginConfiguredGatewayUnreachable(
+            accountLabel: accountLabel,
+            gatewayDetail: channelStatus.lastError ?? payload.gateway.error ?? payload.gatewayService.runtimeShort
+        )
     }
 
     nonisolated static func parseRuntimeSnapshot(from output: String) -> WeChatRuntimeSnapshot {

@@ -135,6 +135,17 @@ struct MenuContentView: View {
                 )
             }
 
+            if snapshot.showsUpgradeAction {
+                actionButton(
+                    title: upgradeButtonTitle,
+                    systemImage: "arrow.triangle.2.circlepath.circle",
+                    trailingText: nil,
+                    isDisabled: isUpgradeActionDisabled,
+                    accessibilityElement: .upgradeButton,
+                    action: upgradeOpenClaw
+                )
+            }
+
             if snapshot.showsTUIDebugAction {
                 actionButton(
                     title: tuiManager.isLaunching ? "正在打开 TUI…" : model.tuiDebugButtonTitle,
@@ -293,10 +304,37 @@ struct MenuContentView: View {
         installer.healthSnapshot?.overallLevel ?? .unknown
     }
 
+    private var upgradeButtonTitle: String {
+        if installer.isUpdating {
+            return "升级中…"
+        }
+
+        if installer.isUpdateAvailable == false {
+            return "已是最新版本"
+        }
+
+        if installer.isUpdateAvailable == true,
+           let latestVersion = installer.latestVersion {
+            return "升级到 OpenClaw \(latestVersion)"
+        }
+
+        return model.upgradeButtonTitle
+    }
+
+    private var isUpgradeActionDisabled: Bool {
+        installer.isBusy || installer.isUpdateAvailable == false
+    }
+
     private func installOpenClaw() {
         openWindow(id: ClawbarWindow.openClawInstallID)
         NSApp.activate(ignoringOtherApps: true)
         installer.startInstallIfNeeded()
+    }
+
+    private func upgradeOpenClaw() {
+        openWindow(id: ClawbarWindow.openClawInstallID)
+        NSApp.activate(ignoringOtherApps: true)
+        installer.startUpdateIfNeeded()
     }
 
     private func uninstallOpenClaw() {

@@ -7,6 +7,7 @@ public enum MenuContentElement: String, Equatable, Sendable {
     case gatewayRow
     case channelRow
     case installButton
+    case upgradeButton
     case uninstallButton
     case tuiDebugButton
     case managementButton
@@ -20,6 +21,7 @@ public struct MenuContentModel: Equatable, Sendable {
     public let missingSubtitle: String
     public let refreshingStatusLabel: String
     public let installButtonTitle: String
+    public let upgradeButtonTitle: String
     public let uninstallButtonTitle: String
     public let tuiDebugButtonTitle: String
     public let managementButtonTitle: String
@@ -33,6 +35,7 @@ public struct MenuContentModel: Equatable, Sendable {
         missingSubtitle: String,
         refreshingStatusLabel: String,
         installButtonTitle: String,
+        upgradeButtonTitle: String,
         uninstallButtonTitle: String,
         tuiDebugButtonTitle: String,
         managementButtonTitle: String,
@@ -45,6 +48,7 @@ public struct MenuContentModel: Equatable, Sendable {
         self.missingSubtitle = missingSubtitle
         self.refreshingStatusLabel = refreshingStatusLabel
         self.installButtonTitle = installButtonTitle
+        self.upgradeButtonTitle = upgradeButtonTitle
         self.uninstallButtonTitle = uninstallButtonTitle
         self.tuiDebugButtonTitle = tuiDebugButtonTitle
         self.managementButtonTitle = managementButtonTitle
@@ -60,6 +64,7 @@ public struct MenuContentModel: Equatable, Sendable {
             missingSubtitle: configuration.menuMissingSubtitle,
             refreshingStatusLabel: configuration.menuRefreshingStatusLabel,
             installButtonTitle: configuration.installLabel,
+            upgradeButtonTitle: configuration.upgradeLabel,
             uninstallButtonTitle: configuration.uninstallLabel,
             tuiDebugButtonTitle: configuration.tuiDebugLabel,
             managementButtonTitle: configuration.applicationLabel,

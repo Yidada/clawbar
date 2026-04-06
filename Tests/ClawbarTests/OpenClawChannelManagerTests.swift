@@ -55,10 +55,6 @@ final class OpenClawChannelManagerTests: XCTestCase {
         [plugins] plugins.allow is empty; discovered non-bundled plugins may auto-load.
         {
           "runtimeVersion": "2026.4.2",
-          "channelSummary": [
-            "openclaw-weixin: configured",
-            "  - 5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)"
-          ],
           "gateway": {
             "reachable": true,
             "error": null,
@@ -75,75 +71,59 @@ final class OpenClawChannelManagerTests: XCTestCase {
         let payload = OpenClawChannelManager.parseStatusPayload(from: output)
 
         XCTAssertEqual(payload?.runtimeVersion, "2026.4.2")
-        XCTAssertEqual(payload?.channelSummary.count, 2)
+        XCTAssertNil(payload?.channelSnapshot)
         XCTAssertEqual(payload?.gateway.reachable, true)
         XCTAssertEqual(payload?.gateway.url, "ws://127.0.0.1:18789")
         XCTAssertEqual(payload?.gatewayService.runtimeShort, "running (pid 95663, state active)")
     }
 
-    func testDeriveStateReturnsPluginMissingWhenChannelSummaryHasNoWeixinSection() {
-        let payload = OpenClawWeixinStatusPayload(
-            runtimeVersion: "2026.4.2",
-            channelSummary: ["telegram: configured"],
-            gateway: .init(reachable: true, error: nil, url: "ws://127.0.0.1:18789"),
-            gatewayService: .init(installed: true, loaded: true, runtimeShort: "running")
-        )
-
+    func testDeriveStateReturnsPluginMissingWhenPluginIsUnavailable() {
         XCTAssertEqual(
-            OpenClawChannelManager.deriveState(from: payload),
+            OpenClawChannelManager.deriveState(from: makeWeixinPayload()),
             .pluginMissing
         )
     }
 
-    func testDeriveStateReturnsConfiguredGatewayReachableWhenWeixinConfiguredAndGatewayReachable() {
-        let payload = OpenClawWeixinStatusPayload(
-            runtimeVersion: "2026.4.2",
-            channelSummary: [
-                "openclaw-weixin: configured",
-                "  - 5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)",
-            ],
-            gateway: .init(reachable: true, error: nil, url: "ws://127.0.0.1:18789"),
-            gatewayService: .init(installed: true, loaded: true, runtimeShort: "running")
-        )
-
+    func testDeriveStateReturnsConfiguredGatewayReachableWhenWeixinRuntimeIsRunning() {
         XCTAssertEqual(
-            OpenClawChannelManager.deriveState(from: payload),
-            .pluginConfiguredGatewayReachable(
-                accountLabel: "5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)"
-            )
+            OpenClawChannelManager.deriveState(
+                from: makeWeixinPayload(
+                    channelSnapshot: makeWeixinChannel(configured: true, running: true, accountID: "wx-bot-default"),
+                    pluginInspection: makeWeixinPlugin(active: true)
+                )
+            ),
+            .pluginConfiguredGatewayReachable(accountLabel: "wx-bot-default")
         )
     }
 
-    func testDeriveStateReturnsConfiguredGatewayUnreachableWhenWeixinConfiguredButGatewayUnavailable() {
-        let payload = OpenClawWeixinStatusPayload(
-            runtimeVersion: "2026.4.2",
-            channelSummary: [
-                "openclaw-weixin: configured",
-                "  - 5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)",
-            ],
-            gateway: .init(reachable: false, error: "connection refused", url: "ws://127.0.0.1:18789"),
-            gatewayService: .init(installed: true, loaded: false, runtimeShort: "not loaded")
-        )
-
+    func testDeriveStateReturnsConfiguredGatewayUnreachableWhenWeixinConfiguredButRuntimeStopped() {
         XCTAssertEqual(
-            OpenClawChannelManager.deriveState(from: payload),
+            OpenClawChannelManager.deriveState(
+                from: makeWeixinPayload(
+                    channelSnapshot: makeWeixinChannel(
+                        configured: true,
+                        running: false,
+                        lastError: "connection refused",
+                        accountID: "wx-bot-default"
+                    ),
+                    pluginInspection: makeWeixinPlugin(active: true)
+                )
+            ),
             .pluginConfiguredGatewayUnreachable(
-                accountLabel: "5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)",
+                accountLabel: "wx-bot-default",
                 gatewayDetail: "connection refused"
             )
         )
     }
 
-    func testDeriveStateReturnsPluginPresentButNotConfiguredWhenWeixinSectionExistsWithoutConfiguredState() {
-        let payload = OpenClawWeixinStatusPayload(
-            runtimeVersion: "2026.4.2",
-            channelSummary: ["openclaw-weixin: not configured"],
-            gateway: .init(reachable: true, error: nil, url: "ws://127.0.0.1:18789"),
-            gatewayService: .init(installed: true, loaded: true, runtimeShort: "running")
-        )
-
+    func testDeriveStateReturnsPluginPresentButNotConfiguredWhenPluginExistsWithoutRuntimeAccount() {
         XCTAssertEqual(
-            OpenClawChannelManager.deriveState(from: payload),
+            OpenClawChannelManager.deriveState(
+                from: makeWeixinPayload(
+                    channelSnapshot: makeWeixinChannel(configured: false, running: false),
+                    pluginInspection: makeWeixinPlugin(active: true)
+                )
+            ),
             .pluginPresentButNotConfigured
         )
     }
@@ -151,10 +131,6 @@ final class OpenClawChannelManagerTests: XCTestCase {
     func testRefreshWeChatStatusKeepsLastKnownStateWhileRefreshing() async {
         let statusOutput = """
         {
-          "channelSummary": [
-            "openclaw-weixin: configured",
-            "  - 5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)"
-          ],
           "gateway": {
             "reachable": true,
             "error": null,
@@ -180,6 +156,18 @@ final class OpenClawChannelManagerTests: XCTestCase {
                     nanoseconds: 300_000_000
                 ),
             ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): [
+                .immediate(.init(output: weixinChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+                .immediate(.init(output: weixinChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): [
+                .immediate(.init(output: weixinChannelsListOutput, exitStatus: 0, timedOut: false)),
+                .immediate(.init(output: weixinChannelsListOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-weixin", "--json"]): [
+                .immediate(.init(output: weixinPluginInspectOutput, exitStatus: 0, timedOut: false)),
+                .immediate(.init(output: weixinPluginInspectOutput, exitStatus: 0, timedOut: false)),
+            ],
         ])
 
         let manager = OpenClawChannelManager(
@@ -193,7 +181,7 @@ final class OpenClawChannelManagerTests: XCTestCase {
         XCTAssertEqual(
             manager.cardState,
             .pluginConfiguredGatewayReachable(
-                accountLabel: "5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)"
+                accountLabel: "wx-bot-default"
             )
         )
 
@@ -203,7 +191,7 @@ final class OpenClawChannelManagerTests: XCTestCase {
             manager.cardState,
             .refreshing(
                 lastKnown: .pluginConfiguredGatewayReachable(
-                    accountLabel: "5aca4a01a0b0-im-bot (https://ilinkai.weixin.qq.com)"
+                    accountLabel: "wx-bot-default"
                 )
             )
         )
@@ -266,6 +254,70 @@ final class OpenClawChannelManagerTests: XCTestCase {
                 ?? .init(output: "", exitStatus: 1, timedOut: false)
         }
     }
+
+    private func makeWeixinPayload(
+        channelSnapshot: OpenClawChannelSnapshot? = nil,
+        pluginInspection: OpenClawPluginInspectionSnapshot? = nil,
+        gatewayError: String? = nil,
+        gatewayRuntimeShort: String? = "running"
+    ) -> OpenClawWeixinStatusPayload {
+        OpenClawWeixinStatusPayload(
+            runtimeVersion: "2026.4.2",
+            gateway: .init(reachable: nil, error: gatewayError, url: "ws://127.0.0.1:18789"),
+            gatewayService: .init(
+                installed: true,
+                loaded: true,
+                runtimeShort: gatewayRuntimeShort
+            ),
+            channelSnapshot: channelSnapshot,
+            pluginInspection: pluginInspection
+        )
+    }
+
+    private func makeWeixinChannel(
+        configured: Bool,
+        running: Bool,
+        lastError: String? = nil,
+        accountID: String? = nil
+    ) -> OpenClawChannelSnapshot {
+        let accounts = accountID.map {
+            [
+                OpenClawChannelAccountSnapshot(
+                    accountID: $0,
+                    enabled: true,
+                    configured: configured,
+                    running: running,
+                    appID: nil,
+                    brand: nil,
+                    lastError: lastError
+                )
+            ]
+        } ?? []
+
+        return OpenClawChannelSnapshot(
+            id: "openclaw-weixin",
+            label: "WeChat",
+            detailLabel: nil,
+            exists: true,
+            configured: configured,
+            running: running,
+            lastError: lastError,
+            defaultAccountID: accountID,
+            accounts: accounts
+        )
+    }
+
+    private func makeWeixinPlugin(active: Bool) -> OpenClawPluginInspectionSnapshot {
+        OpenClawPluginInspectionSnapshot(
+            pluginID: "openclaw-weixin",
+            exists: true,
+            enabled: active,
+            activated: active,
+            status: active ? "loaded" : "disabled",
+            channelIDs: ["openclaw-weixin"],
+            failureDetail: nil
+        )
+    }
 }
 
 private struct MockCommand: Hashable {
@@ -321,3 +373,53 @@ private extension NSLock {
         return body()
     }
 }
+
+private let weixinChannelsStatusOutput = """
+{
+  "channelOrder": ["openclaw-weixin"],
+  "channelLabels": {
+    "openclaw-weixin": "WeChat"
+  },
+  "channels": {
+    "openclaw-weixin": {
+      "configured": true,
+      "running": true,
+      "lastError": null
+    }
+  },
+  "channelAccounts": {
+    "openclaw-weixin": [
+      {
+        "accountId": "wx-bot-default",
+        "enabled": true,
+        "configured": true,
+        "running": true,
+        "lastError": null
+      }
+    ]
+  },
+  "channelDefaultAccountId": {
+    "openclaw-weixin": "wx-bot-default"
+  }
+}
+"""
+
+private let weixinChannelsListOutput = """
+{
+  "chat": {
+    "openclaw-weixin": ["wx-bot-default"]
+  }
+}
+"""
+
+private let weixinPluginInspectOutput = """
+{
+  "plugin": {
+    "id": "openclaw-weixin",
+    "enabled": true,
+    "activated": true,
+    "status": "loaded",
+    "channelIds": ["openclaw-weixin"]
+  }
+}
+"""

@@ -64,11 +64,14 @@ Clawbar 采用 tag 驱动的 notarized DMG 发布流程。推送 `v*` tag 后，
 
 发布前置条件和完整步骤见 [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md)。
 
+如果你需要在本机手动准备证书、执行签名并跑通 notarization，可参考更细的操作文档 [docs/2026-04-06-local-signing-guide.md](docs/2026-04-06-local-signing-guide.md)。
+
 ## 文档
 
 - [docs/README.md](docs/README.md) 汇总项目文档
 - [Tests/Harness/README.md](Tests/Harness/README.md) 说明本地控制与测试 harness
 - [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md) 记录签名、公证和 DMG 发布流程
+- [docs/2026-04-06-local-signing-guide.md](docs/2026-04-06-local-signing-guide.md) 提供本地证书准备、签名和 notarization 的详细步骤
 
 ## 仓库说明
 

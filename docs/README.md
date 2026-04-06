@@ -10,6 +10,8 @@
   项目级 skills 的 source of truth、registry 规则，以及与统一 harness 的关系。
 - `2026-04-05-notarized-release-process.md`
   正式 macOS 发布所需的签名、notarization、DMG 流程，以及必须准备的 GitHub secrets。
+- `2026-04-06-local-signing-guide.md`
+  面向本地开发者的详细签名与 notarization 操作指引，包括证书准备、API key、脚本用法和常见故障排查。
 
 ## 约定
 

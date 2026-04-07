@@ -2,9 +2,13 @@
 dist/
 Artifacts/
 .local/
+specs/
+.env
+.secrets/
 .playwright/
 .playwright-mcp/
 .claude/worktrees/
+.omx/
 .DS_Store
 node_modules/
 .next/

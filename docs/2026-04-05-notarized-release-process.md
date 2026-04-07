@@ -66,7 +66,7 @@ export APPLE_NOTARY_API_KEY_PATH="/absolute/path/to/AuthKey_ABCD123456.p8"
 验证点：
 
 - `dist/Clawbar.app` 已签名
-- `dist/Clawbar-<version>.dmg` 已生成
+- `dist/Clawbar-<version>-<HH_MM_SS>.dmg` 已生成
 - `notarytool submit --wait` 成功
 - `stapler validate` 对 `.app` 和 `.dmg` 都通过
 - Finder 能挂载 DMG，拖出 app 后首次启动不会出现未签名或 damaged 提示

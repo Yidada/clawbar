@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class OpenClawInstallerTests: XCTestCase {
+    private final class AttemptRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var environments: [[String: String]] = []
+        private var attempts = 0
+
+        func record(environment: [String: String]) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            environments.append(environment)
+            attempts += 1
+            return attempts
+        }
+
+        func snapshot() -> [[String: String]] {
+            lock.lock()
+            defer { lock.unlock() }
+            return environments
+        }
+    }
+
     func testInstallCommandMatchesOfficialNoOnboardFlow() {
         XCTAssertEqual(
             OpenClawInstaller.installCommand,
@@ -107,6 +127,34 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
+    func testInstallRetryFallbackRegistryDefaultsToByteDanceMirror() {
+        XCTAssertEqual(
+            OpenClawInstaller.installRetryFallbackRegistry(base: [:]),
+            "https://bnpm.byted.org"
+        )
+    }
+
+    func testInstallRetryFallbackRegistrySupportsDisableFlag() {
+        XCTAssertNil(
+            OpenClawInstaller.installRetryFallbackRegistry(base: [
+                "OPENCLAW_NPM_REGISTRY_FALLBACK": "false"
+            ])
+        )
+    }
+
+    func testShouldRetryInstallWithFallbackMatchesNetworkFailuresOnly() {
+        XCTAssertTrue(
+            OpenClawInstaller.shouldRetryInstallWithFallback(
+                logText: "npm ERR! code ETIMEDOUT\nnpm ERR! network request failed"
+            )
+        )
+        XCTAssertFalse(
+            OpenClawInstaller.shouldRetryInstallWithFallback(
+                logText: "npm ERR! code EEXIST\nnpm ERR! path /opt/homebrew/bin/openclaw"
+            )
+        )
+    }
+
     func testParseStatusPayloadReadsRuntimeAndGatewayOverview() {
         let output = """
         [plugins] warning
@@ -155,6 +203,107 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(payload?.isUpdateAvailable, true)
         XCTAssertEqual(payload?.latestVersion, "2026.4.2")
         XCTAssertEqual(payload?.channelLabel, "stable (default)")
+    }
+
+    func testStartInstallRetriesWithFallbackRegistryWhenLogLooksNetworkRelated() async {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let primaryEnvironment = ProcessInfo.processInfo.environment
+        let fallbackRegistry = "https://bnpm.byted.org"
+        setenv("OPENCLAW_NPM_REGISTRY_FALLBACK", fallbackRegistry, 1)
+        defer {
+            if let previous = primaryEnvironment["OPENCLAW_NPM_REGISTRY_FALLBACK"] {
+                setenv("OPENCLAW_NPM_REGISTRY_FALLBACK", previous, 1)
+            } else {
+                unsetenv("OPENCLAW_NPM_REGISTRY_FALLBACK")
+            }
+        }
+
+        let recorder = AttemptRecorder()
+
+        let installer = OpenClawInstaller(
+            autoStartTimer: false,
+            processFactory: { _, logURL, environment, _, completion in
+                let currentAttempt = recorder.record(environment: environment)
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-lc", "sleep 0.01"]
+                process.environment = environment
+                process.currentDirectoryURL = tempDirectory
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                process.terminationHandler = { _ in
+                    let logText: String
+                    if currentAttempt == 1 {
+                        logText = "npm ERR! code ETIMEDOUT\nnpm ERR! network request failed\n"
+                    } else {
+                        logText = "npm ERR! code EEXIST\nnpm ERR! path /opt/homebrew/bin/openclaw\n"
+                    }
+                    try? logText.write(to: logURL, atomically: true, encoding: .utf8)
+                    completion(.failure(NSError(domain: "Test", code: currentAttempt)))
+                }
+                return process
+            }
+        )
+
+        installer.startInstallIfNeeded()
+
+        await waitForCondition(timeout: 2) { !installer.isInstalling }
+
+        let capturedEnvironments = recorder.snapshot()
+        XCTAssertEqual(capturedEnvironments.count, 2)
+        XCTAssertNil(capturedEnvironments[0]["npm_config_registry"])
+        XCTAssertEqual(capturedEnvironments[1]["npm_config_registry"], fallbackRegistry)
+        XCTAssertEqual(capturedEnvironments[1]["OPENCLAW_NPM_REGISTRY"], fallbackRegistry)
+        XCTAssertTrue(installer.logText.contains("将使用备用 registry 重试"))
+        XCTAssertEqual(installer.statusText, "OpenClaw 安装失败。")
+    }
+
+    func testStartInstallDoesNotRetryForNonNetworkFailure() async {
+        let primaryEnvironment = ProcessInfo.processInfo.environment
+        setenv("OPENCLAW_NPM_REGISTRY_FALLBACK", "https://bnpm.byted.org", 1)
+        defer {
+            if let previous = primaryEnvironment["OPENCLAW_NPM_REGISTRY_FALLBACK"] {
+                setenv("OPENCLAW_NPM_REGISTRY_FALLBACK", previous, 1)
+            } else {
+                unsetenv("OPENCLAW_NPM_REGISTRY_FALLBACK")
+            }
+        }
+
+        let recorder = AttemptRecorder()
+
+        let installer = OpenClawInstaller(
+            autoStartTimer: false,
+            processFactory: { _, logURL, environment, _, completion in
+                _ = recorder.record(environment: environment)
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-lc", "sleep 0.01"]
+                process.environment = environment
+                process.standardOutput = Pipe()
+                process.standardError = Pipe()
+                process.terminationHandler = { _ in
+                    try? "npm ERR! code EEXIST\nnpm ERR! path /opt/homebrew/bin/openclaw\n"
+                        .write(to: logURL, atomically: true, encoding: .utf8)
+                    completion(.failure(NSError(domain: "Test", code: 1)))
+                }
+                return process
+            }
+        )
+
+        installer.startInstallIfNeeded()
+
+        await waitForCondition(timeout: 2) { !installer.isInstalling }
+
+        let capturedEnvironments = recorder.snapshot()
+        XCTAssertEqual(capturedEnvironments.count, 1)
+        XCTAssertFalse(installer.logText.contains("将使用备用 registry 重试"))
+        XCTAssertEqual(installer.statusText, "OpenClaw 安装失败。")
     }
 
     func testMakeStatusSnapshotBuildsStructuredHealthOverview() {

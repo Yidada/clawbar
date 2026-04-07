@@ -104,10 +104,10 @@ python3 Scripts/prepare_signing_assets.py \
 
 GitHub Actions 现在分成两条打包路径，复用同一套签名配置：
 
-- 合入 `main` 后：执行测试、签名、公证，并把 app + DMG 作为 workflow artifact 上传
+- 合入 `main` 后：执行测试、签名、公证，把 DMG 作为 workflow artifact 上传，并更新 `main-build` GitHub 预发布
 - 推送 `v*` tag 后：执行正式 release 流程，并把 DMG 发布到 GitHub Releases
 
-这两条 workflow 都从 GitHub Environment `release-signing` 读取 secrets。
+这两条 workflow 都从 GitHub Environment `release-signing` 读取 secrets，并且统一只对外产出 `.dmg`。
 
 ## 文档
 

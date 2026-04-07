@@ -32,7 +32,7 @@ The repository now ignores `.local/`, so the project can keep machine-local sign
 
 Use two GitHub Actions paths:
 
-- `push` to `main`: build, test, sign, notarize, staple, validate, and upload the DMG as a workflow artifact
+- `push` to `main`: build, test, sign, notarize, staple, validate, upload the DMG as a workflow artifact, and refresh a GitHub prerelease
 - `push` of `v*` tags: run the same signing chain and publish the DMG to GitHub Releases
 
 That keeps `main` continuously packageable without turning every merge into a public release.
@@ -106,7 +106,7 @@ With that in place, every `push` to `main` effectively means a reviewed merge, a
 
 After the environment secrets are configured:
 
-- merging to `main` runs `Package Main App`
+- merging to `main` runs `Package Main App` and updates the `main-build` prerelease with the latest notarized DMG
 - pushing a `v*` tag runs `Release App`
 
 Both workflows now call the same reusable packaging workflow, which in turn uses the shared temporary keychain import action and the same notarization script. That keeps the signing implementation in one place.

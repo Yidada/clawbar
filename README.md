@@ -104,10 +104,10 @@ The generated local env pins signing to `login.keychain-db` so local packaging d
 
 GitHub Actions now supports two packaging paths from the same signing setup:
 
-- `push` to `main`: run tests, sign, notarize, and upload the app + DMG as workflow artifacts
+- `push` to `main`: run tests, sign, notarize, upload the DMG as a workflow artifact, and refresh the `main-build` GitHub prerelease
 - `push` of `v*` tags: run the release pipeline and publish the DMG to GitHub Releases
 
-Both workflows read secrets from the GitHub Environment named `release-signing`, and both now delegate to the same reusable packaging workflow so the signing, notarization, artifact upload, and release behavior stay aligned.
+Both workflows read secrets from the GitHub Environment named `release-signing`, and both now delegate to the same reusable packaging workflow so the signing, notarization, DMG-only upload, and release behavior stay aligned.
 
 ## Docs
 

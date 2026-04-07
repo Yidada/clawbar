@@ -49,6 +49,7 @@ jobs:
       dmg-basename: ${{ needs.prepare.outputs.dmg_basename }}
       artifact-name: clawbar-app-${{ needs.prepare.outputs.version }}
       publish-release: true
+      release-prerelease: false
       release-tag: ${{ needs.prepare.outputs.tag }}
       release-title: Clawbar ${{ needs.prepare.outputs.version }}
       release-notes: Automated notarized release for commit ${{ github.sha }}.

@@ -131,6 +131,25 @@ enum OpenClawChannelsSnapshotSupport {
             )
         })
 
+        if !statusLoaded, !listLoaded,
+           let fallback = OpenClawLocalSnapshotSupport.channelsSnapshot() {
+            return OpenClawChannelsSnapshot(
+                orderedChannelIDs: fallback.orderedChannelIDs,
+                channelsByID: fallback.channelsByID,
+                statusLoaded: fallback.statusLoaded,
+                listLoaded: fallback.listLoaded,
+                statusFailureDetail: commandFailureDetail(
+                    result: statusResult,
+                    fallbackCommand: "openclaw channels status --json"
+                ),
+                listFailureDetail: commandFailureDetail(
+                    result: listResult,
+                    fallbackCommand: "openclaw channels list --json"
+                ),
+                pluginInspections: pluginInspections
+            )
+        }
+
         return OpenClawChannelsSnapshot(
             orderedChannelIDs: orderedChannelIDs,
             channelsByID: channelsByID,

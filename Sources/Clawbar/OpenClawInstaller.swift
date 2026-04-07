@@ -464,17 +464,60 @@ final class OpenClawInstaller: ObservableObject {
 
     nonisolated static func installationEnvironment(base: [String: String]) -> [String: String] {
         var environment = base
-        let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = installationSearchPaths(base: base).joined(separator: ":")
+        return environment
+    }
 
-        if let currentPath = environment["PATH"], !currentPath.isEmpty {
-            if !currentPath.contains("/opt/homebrew/bin") {
-                environment["PATH"] = "\(defaultPath):\(currentPath)"
+    nonisolated static func installationSearchPaths(
+        base: [String: String],
+        homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
+    ) -> [String] {
+        var paths: [String] = []
+
+        func appendPath(_ value: String?) {
+            guard let value else { return }
+
+            for component in value.split(separator: ":") {
+                let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, !paths.contains(trimmed) else { continue }
+                paths.append(trimmed)
             }
-        } else {
-            environment["PATH"] = defaultPath
         }
 
-        return environment
+        let basePath = trimmedNonEmpty(base["PATH"])
+        if basePath != nil {
+            appendPath(basePath)
+        } else {
+            appendPath("/opt/homebrew/bin")
+            appendPath("/usr/local/bin")
+            appendPath("/usr/bin")
+            appendPath("/bin")
+            appendPath("/usr/sbin")
+            appendPath("/sbin")
+        }
+
+        if let bunInstall = trimmedNonEmpty(base["BUN_INSTALL"]) {
+            appendPath("\(bunInstall)/bin")
+        }
+        if let pnpmHome = trimmedNonEmpty(base["PNPM_HOME"]) {
+            appendPath(pnpmHome)
+        }
+        if let npmPrefix = trimmedNonEmpty(base["npm_config_prefix"] ?? base["NPM_CONFIG_PREFIX"]) {
+            appendPath("\(npmPrefix)/bin")
+        }
+
+        appendPath("/opt/homebrew/bin")
+        appendPath("/usr/local/bin")
+        appendPath("/usr/bin")
+        appendPath("/bin")
+        appendPath("/usr/sbin")
+        appendPath("/sbin")
+        appendPath("\(homeDirectoryPath)/.bun/bin")
+        appendPath("\(homeDirectoryPath)/Library/pnpm")
+        appendPath("\(homeDirectoryPath)/.npm-global/bin")
+        appendPath("\(homeDirectoryPath)/.local/bin")
+
+        return paths
     }
 
     private nonisolated static func installationEnvironment(
@@ -1102,8 +1145,12 @@ final class OpenClawInstaller: ObservableObject {
             environment,
             8
         )
-        guard !result.timedOut, result.exitStatus == 0 else { return nil }
-        return OpenClawProviderManager.parseStatusSnapshot(result.output, binaryPath: binaryPath)
+        if !result.timedOut, result.exitStatus == 0,
+           let snapshot = OpenClawProviderManager.parseStatusSnapshot(result.output, binaryPath: binaryPath) {
+            return snapshot
+        }
+
+        return OpenClawLocalSnapshotSupport.providerSnapshot(binaryPath: binaryPath)
     }
 
     private nonisolated static func fetchGatewayStatusSnapshot(binaryPath: String, environment: [String: String]) -> OpenClawGatewayStatusSnapshot {

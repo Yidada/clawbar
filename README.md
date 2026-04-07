@@ -41,7 +41,6 @@ swift run Clawbar
 - `Sources/Clawbar/` app entry point, SwiftUI/AppKit integration, and OpenClaw management flows
 - `Tests/ClawbarTests/` XCTest coverage for shared logic and grouped integration flows
 - `Tests/Harness/` harness entrypoint for the dev loop, smoke runs, integration suites, and diagnostics
-- `website/` standalone Next.js/Vercel landing site for product intro and DMG download
 - `docs/` current process notes and release documentation
 - `.agents/skills/` project-owned skills used by contributors and agents
 - `References/openclaw/` pinned upstream OpenClaw snapshot for integration details
@@ -76,26 +75,10 @@ Top-level `Scripts/dev.sh`, `Scripts/check_coverage.sh`, `Scripts/smoke_test.sh`
 
 ## Packaging and Release
 
-`version.env` is the source of truth for the release version, and `CHANGELOG.md` is the source of truth for release notes. Official `v<version>` tags must match `version.env`, and the matching changelog section must be finalized before you push the tag.
-
 For unsigned local packaging, use `Scripts/package_app.sh`. The default output is a zip; set `OUTPUT_FORMAT=app`, `dmg`, or `both` when you need a different artifact shape.
 
 ```bash
 OUTPUT_FORMAT=dmg ./Scripts/package_app.sh
-```
-
-To regenerate the committed app and menu bar icon assets from the source artwork under `Resources/icons/`, run:
-
-```bash
-swift Scripts/generate_logo_assets.swift
-```
-
-For release preflight, run:
-
-```bash
-bash Scripts/validate_release_metadata.sh
-bash Scripts/validate_changelog.sh "$(source version.env && echo "$MARKETING_VERSION")"
-bash Scripts/extract_release_notes.sh "$(source version.env && echo "$MARKETING_VERSION")"
 ```
 
 For local signing and notarization validation, set `SIGNING_IDENTITY` and the required notary environment variables, then run:
@@ -104,30 +87,11 @@ For local signing and notarization validation, set `SIGNING_IDENTITY` and the re
 ./Scripts/sign_and_notarize.sh
 ```
 
-To save local signing configuration inside the project without committing secrets, prepare the ignored `.local/signing/` directory:
+Tagged releases use the GitHub Actions release pipeline. Pushing a `v*` tag runs tests, signs the app, submits it for notarization, staples the result, and publishes the DMG to GitHub Releases.
 
-```bash
-python3 Scripts/prepare_signing_assets.py \
-  --source-dir /absolute/path/to/signing-bundle \
-  --output-dir .local/signing \
-  --team-id YOUR_TEAM_ID \
-  --signing-identity "Developer ID Application: Your Name (YOUR_TEAM_ID)" \
-  --notary-key-id YOUR_KEY_ID \
-  --notary-issuer-id YOUR_ISSUER_ID
-```
+If you publish from GitLab instead of GitHub, the repository also includes a `.gitlab-ci.yml` template that signs and notarizes a DMG on each default-branch merge, uploads it to the GitLab Package Registry, and exposes a download link through GitLab Releases. See [docs/2026-04-07-gitlab-main-branch-release.md](docs/2026-04-07-gitlab-main-branch-release.md).
 
-After that, `source .local/signing/local-notary.env` before running `./Scripts/sign_and_notarize.sh`.
-The generated local env pins signing to `login.keychain-db` so local packaging does not depend on any temporary signing keychain left in your user search list.
-
-GitHub Actions now supports two packaging paths from the same signing setup:
-
-- `push` to `main`: run tests, sign, notarize, upload the DMG as a workflow artifact, and refresh the `main-build` GitHub prerelease
-- `push` of `v*` tags: validate `version.env` and `CHANGELOG.md`, then publish the versioned notarized DMG to GitHub Releases
-
-Both workflows read secrets from the GitHub Environment named `release-signing`, and both now delegate to the same reusable packaging workflow so the signing, notarization, DMG-only upload, and release behavior stay aligned.
-That environment must allow deployments from both `main` and `v*` tags, or the release job will be rejected before packaging starts.
-
-Homebrew cask publication is planned, but not yet wired in this repository. For now, GitHub Releases DMG remains the only public install channel.
+If you run CI through ByteDance Codebase CI instead of native GitLab runners, use [.codebase/pipelines/main-notarized-release.yml](.codebase/pipelines/main-notarized-release.yml) together with Codebase CI Variables. See [docs/2026-04-07-codebase-ci-main-release.md](docs/2026-04-07-codebase-ci-main-release.md).
 
 ## Docs
 
@@ -135,8 +99,8 @@ Homebrew cask publication is planned, but not yet wired in this repository. For 
 - [Tests/Harness/README.md](Tests/Harness/README.md) for the local control and test harness
 - [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md) for the release pipeline and required GitHub secrets
 - [docs/2026-04-06-local-signing-guide.md](docs/2026-04-06-local-signing-guide.md) for local certificate, signing, and notarization steps
-- [docs/2026-04-07-main-branch-packaging-setup.md](docs/2026-04-07-main-branch-packaging-setup.md) for ignored local signing files and GitHub Environment setup
-- [docs/2026-04-11-homebrew-cask-plan.md](docs/2026-04-11-homebrew-cask-plan.md) for the deferred tap-ready Homebrew plan
+- [docs/2026-04-07-gitlab-main-branch-release.md](docs/2026-04-07-gitlab-main-branch-release.md) for the GitLab main-branch packaging pipeline
+- [docs/2026-04-07-codebase-ci-main-release.md](docs/2026-04-07-codebase-ci-main-release.md) for the Codebase CI main-branch packaging pipeline
 
 ## OpenClaw Reference Workflow
 

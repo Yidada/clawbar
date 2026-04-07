@@ -432,13 +432,186 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].statusLabel, "未知")
     }
 
-    func testInstallationEnvironmentAddsCommonInteractivePaths() {
-        let environment = OpenClawInstaller.installationEnvironment(base: [:])
+    func testInstallationSearchPathsAddsCommonUserPackageManagerDirectories() {
+        let paths = OpenClawInstaller.installationSearchPaths(
+            base: [:],
+            homeDirectoryPath: "/Users/liuyuyang"
+        )
 
         XCTAssertEqual(
-            environment["PATH"],
-            "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            paths,
+            [
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin",
+                "/Users/liuyuyang/.bun/bin",
+                "/Users/liuyuyang/Library/pnpm",
+                "/Users/liuyuyang/.npm-global/bin",
+                "/Users/liuyuyang/.local/bin",
+            ]
         )
+    }
+
+    func testInstallationSearchPathsHonorsPackageManagerEnvironmentOverridesAndDeduplicates() {
+        let paths = OpenClawInstaller.installationSearchPaths(
+            base: [
+                "BUN_INSTALL": "/custom/bun",
+                "PNPM_HOME": "/custom/pnpm",
+                "npm_config_prefix": "/custom/npm",
+                "PATH": "/custom/bin:/usr/bin:/custom/pnpm:/custom/bun/bin"
+            ],
+            homeDirectoryPath: "/Users/liuyuyang"
+        )
+
+        XCTAssertEqual(
+            paths,
+            [
+                "/custom/bin",
+                "/usr/bin",
+                "/custom/pnpm",
+                "/custom/bun/bin",
+                "/custom/npm/bin",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin",
+                "/Users/liuyuyang/.bun/bin",
+                "/Users/liuyuyang/Library/pnpm",
+                "/Users/liuyuyang/.npm-global/bin",
+                "/Users/liuyuyang/.local/bin",
+            ]
+        )
+    }
+
+    func testInstallationEnvironmentUsesExpandedSearchPaths() {
+        let environment = OpenClawInstaller.installationEnvironment(base: [
+            "BUN_INSTALL": "/custom/bun"
+        ])
+
+        XCTAssertNotNil(environment["PATH"])
+        XCTAssertTrue(environment["PATH"]?.contains("/opt/homebrew/bin") == true)
+        XCTAssertTrue(environment["PATH"]?.contains("/custom/bun/bin") == true)
+        XCTAssertTrue(environment["PATH"]?.contains("\(FileManager.default.homeDirectoryForCurrentUser.path)/.bun/bin") == true)
+    }
+
+    func testInstallationSearchPathsPreservesExistingPathPriorityOverGuessedHomeBins() {
+        let paths = OpenClawInstaller.installationSearchPaths(
+            base: [
+                "PATH": "/Users/liuyuyang/.nvm/versions/node/v22.0.0/bin:/opt/homebrew/bin:/usr/bin"
+            ],
+            homeDirectoryPath: "/Users/liuyuyang"
+        )
+
+        XCTAssertEqual(
+            Array(paths.prefix(3)),
+            [
+                "/Users/liuyuyang/.nvm/versions/node/v22.0.0/bin",
+                "/opt/homebrew/bin",
+                "/usr/bin",
+            ]
+        )
+        XCTAssertEqual(Array(paths.suffix(4)), [
+            "/Users/liuyuyang/.bun/bin",
+            "/Users/liuyuyang/Library/pnpm",
+            "/Users/liuyuyang/.npm-global/bin",
+            "/Users/liuyuyang/.local/bin",
+        ])
+    }
+
+    func testLocalProviderSnapshotReadsConfigFileWhenStatusCommandsFail() throws {
+        let configURL = try makeTemporaryOpenClawConfigFile(
+            """
+            {
+              "auth": {
+                "profiles": {
+                  "litellm:default": {
+                    "provider": "litellm",
+                    "mode": "api_key"
+                  }
+                }
+              },
+              "models": {
+                "providers": {
+                  "litellm": {
+                    "baseUrl": "https://example.com",
+                    "models": [{ "id": "gpt-5.4" }]
+                  }
+                }
+              },
+              "agents": {
+                "defaults": {
+                  "model": {
+                    "primary": "litellm/gpt-5.4"
+                  }
+                }
+              }
+            }
+            """
+        )
+
+        let snapshot = OpenClawLocalSnapshotSupport.providerSnapshot(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            configFileURL: configURL
+        )
+
+        XCTAssertEqual(snapshot?.configPath, configURL.path)
+        XCTAssertEqual(snapshot?.defaultModelRef, "litellm/gpt-5.4")
+        XCTAssertEqual(snapshot?.authStates["litellm"]?.kind, "api_key")
+        XCTAssertEqual(snapshot?.authStates["litellm"]?.source, "openclaw.json")
+    }
+
+    func testLocalChannelsSnapshotReadsEnabledChannelsFromConfigFile() throws {
+        let configURL = try makeTemporaryOpenClawConfigFile(
+            """
+            {
+              "channels": {
+                "feishu": {
+                  "enabled": true,
+                  "appId": "cli_123",
+                  "domain": "feishu"
+                }
+              }
+            }
+            """
+        )
+
+        let snapshot = OpenClawLocalSnapshotSupport.channelsSnapshot(configFileURL: configURL)
+        let feishu = snapshot?.channel(id: "feishu")
+
+        XCTAssertEqual(snapshot?.statusFailureDetail, "openclaw channels status/list --json 未返回结果；已回退到 openclaw.json。")
+        XCTAssertEqual(feishu?.label, "Feishu")
+        XCTAssertEqual(feishu?.configured, true)
+        XCTAssertEqual(feishu?.running, false)
+        XCTAssertEqual(feishu?.primaryAccount?.accountID, "cli_123")
+    }
+
+    func testLocalGatewaySnapshotInfersRunningGatewayProcess() throws {
+        let configURL = try makeTemporaryOpenClawConfigFile(
+            """
+            {
+              "gateway": {
+                "mode": "local",
+                "port": 18789
+              }
+            }
+            """
+        )
+
+        let snapshot = OpenClawLocalSnapshotSupport.gatewaySnapshot(
+            binaryPath: "/opt/homebrew/bin/openclaw",
+            configFileURL: configURL,
+            processListProvider: {
+                "82363 openclaw-gateway openclaw-gateway\n82361 openclaw /opt/homebrew/bin/openclaw gateway --port 18789\n"
+            }
+        )
+
+        XCTAssertEqual(snapshot?.state, .running)
+        XCTAssertEqual(snapshot?.pid, 82363)
+        XCTAssertEqual(snapshot?.runtimeStatus, "running")
     }
 
     func testOverrideParsesInstalledStateFromEnvironment() {
@@ -687,5 +860,15 @@ final class OpenClawInstallerTests: XCTestCase {
             }
             try? await Task.sleep(nanoseconds: pollInterval)
         }
+    }
+
+    private func makeTemporaryOpenClawConfigFile(_ contents: String) throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+        let fileURL = directoryURL.appendingPathComponent("openclaw.json")
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        return fileURL
     }
 }

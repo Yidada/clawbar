@@ -688,8 +688,12 @@ final class OpenClawProviderManager: ObservableObject {
         runCommand: CommandRunner
     ) -> OpenClawProviderSnapshot? {
         let result = runCommand(binaryPath, ["models", "status", "--json"], environment, 8)
-        guard !result.timedOut, result.exitStatus == 0 else { return nil }
-        return parseStatusSnapshot(result.output, binaryPath: binaryPath)
+        if !result.timedOut, result.exitStatus == 0,
+           let snapshot = parseStatusSnapshot(result.output, binaryPath: binaryPath) {
+            return snapshot
+        }
+
+        return OpenClawLocalSnapshotSupport.providerSnapshot(binaryPath: binaryPath)
     }
 
     nonisolated static func parseStatusSnapshot(
@@ -742,7 +746,11 @@ final class OpenClawProviderManager: ObservableObject {
         runCommand: CommandRunner
     ) -> Bool {
         let result = runCommand(binaryPath, ["config", "get", path], environment, 5)
-        return !result.timedOut && result.exitStatus == 0 && result.output.trimmedNonEmpty != nil
+        if !result.timedOut, result.exitStatus == 0, result.output.trimmedNonEmpty != nil {
+            return true
+        }
+
+        return OpenClawLocalSnapshotSupport.hasValue(at: path)
     }
 
     private nonisolated static func loadConfigValue(
@@ -752,8 +760,11 @@ final class OpenClawProviderManager: ObservableObject {
         runCommand: CommandRunner
     ) -> String? {
         let result = runCommand(binaryPath, ["config", "get", path], environment, 5)
-        guard !result.timedOut, result.exitStatus == 0 else { return nil }
-        return result.output.trimmedNonEmpty
+        if !result.timedOut, result.exitStatus == 0 {
+            return result.output.trimmedNonEmpty
+        }
+
+        return OpenClawLocalSnapshotSupport.stringValue(at: path)
     }
 
     nonisolated static func renderCommandLine(_ invocation: OpenClawProviderCLIInvocation) -> String {

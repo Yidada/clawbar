@@ -21,6 +21,7 @@ ZIP_PATH="$DIST_DIR/${ZIP_BASENAME}.zip"
 DMG_PATH="$DIST_DIR/${DMG_BASENAME}.dmg"
 OUTPUT_FORMAT="${OUTPUT_FORMAT:-zip}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
+SIGNING_KEYCHAIN="${SIGNING_KEYCHAIN:-}"
 SIGN_WITH_TIMESTAMP="${SIGN_WITH_TIMESTAMP:-0}"
 
 if [[ -n "${BUILD_ARCHS:-}" ]]; then
@@ -52,6 +53,11 @@ fi
 codesign_container_args=(--force)
 if [[ "$SIGN_WITH_TIMESTAMP" == "1" ]]; then
   codesign_container_args+=(--timestamp)
+fi
+
+if [[ -n "$SIGNING_KEYCHAIN" ]]; then
+  codesign_runtime_args+=(--keychain "$SIGNING_KEYCHAIN")
+  codesign_container_args+=(--keychain "$SIGNING_KEYCHAIN")
 fi
 
 sign_runtime_item() {

@@ -1,24 +1,25 @@
-name: Release App
+name: Package Main App
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - "main"
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-app-${{ github.ref }}
+  group: package-main-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       build_number: ${{ steps.meta.outputs.build_number }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
       dmg_basename: ${{ steps.meta.outputs.dmg_basename }}
     steps:
       - name: Check out repository
@@ -26,20 +27,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Compute release metadata
+      - name: Compute package metadata
         id: meta
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
+          DATE_VERSION="$(date -u +%Y.%m.%d)"
           BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
-          DMG_BASENAME="Clawbar-${VERSION}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          DMG_BASENAME="Clawbar-main-${DATE_VERSION}-${SHORT_SHA}"
+          echo "version=$DATE_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "dmg_basename=$DMG_BASENAME" >> "$GITHUB_OUTPUT"
 
-  release:
+  package:
     needs: prepare
     uses: ./.github/workflows/package-signed-dmg.yml
     secrets: inherit
@@ -47,8 +48,5 @@ jobs:
       app-version: ${{ needs.prepare.outputs.version }}
       app-build: ${{ needs.prepare.outputs.build_number }}
       dmg-basename: ${{ needs.prepare.outputs.dmg_basename }}
-      artifact-name: clawbar-app-${{ needs.prepare.outputs.version }}
-      publish-release: true
-      release-tag: ${{ needs.prepare.outputs.tag }}
-      release-title: Clawbar ${{ needs.prepare.outputs.version }}
-      release-notes: Automated notarized release for commit ${{ github.sha }}.
+      artifact-name: clawbar-main-${{ needs.prepare.outputs.short_sha }}
+      artifact-retention-days: 14

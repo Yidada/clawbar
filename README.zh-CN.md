@@ -87,7 +87,27 @@ OUTPUT_FORMAT=dmg ./Scripts/package_app.sh
 ./Scripts/sign_and_notarize.sh
 ```
 
-正式发布使用 GitHub Actions 的 tag 驱动流程。推送 `v*` tag 后，流水线会执行测试、签名、公证、stapling，并把 DMG 发布到 GitHub Releases。
+如果要把本地签名配置保存在项目里、但又不提交到 Git，可以先生成被忽略的 `.local/signing/` 目录：
+
+```bash
+python3 Scripts/prepare_signing_assets.py \
+  --source-dir /absolute/path/to/signing-bundle \
+  --output-dir .local/signing \
+  --team-id YOUR_TEAM_ID \
+  --signing-identity "Developer ID Application: Your Name (YOUR_TEAM_ID)" \
+  --notary-key-id YOUR_KEY_ID \
+  --notary-issuer-id YOUR_ISSUER_ID
+```
+
+之后先执行 `source .local/signing/local-notary.env`，再运行 `./Scripts/sign_and_notarize.sh`。
+生成出来的本地 env 会把签名明确绑定到 `login.keychain-db`，避免本机残留的临时 signing keychain 干扰 `codesign`。
+
+GitHub Actions 现在分成两条打包路径，复用同一套签名配置：
+
+- 合入 `main` 后：执行测试、签名、公证，并把 app + DMG 作为 workflow artifact 上传
+- 推送 `v*` tag 后：执行正式 release 流程，并把 DMG 发布到 GitHub Releases
+
+这两条 workflow 都从 GitHub Environment `release-signing` 读取 secrets。
 
 ## 文档
 
@@ -95,6 +115,7 @@ OUTPUT_FORMAT=dmg ./Scripts/package_app.sh
 - [Tests/Harness/README.md](Tests/Harness/README.md)：本地控制与测试 harness 说明
 - [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md)：release 流水线和 GitHub secrets 要求
 - [docs/2026-04-06-local-signing-guide.md](docs/2026-04-06-local-signing-guide.md)：本地证书准备、签名和 notarization 细节
+- [docs/2026-04-07-main-branch-packaging-setup.md](docs/2026-04-07-main-branch-packaging-setup.md)：项目内本地签名配置目录与 GitHub Environment 配置方式
 
 ## OpenClaw 参考快照工作流
 

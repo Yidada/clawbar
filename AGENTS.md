@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 `clawbar` is a Swift Package Manager macOS menu bar companion for installing, configuring, and operating a local OpenClaw setup. Shared app lifecycle and menu-state logic lives in `Sources/ClawbarKit`, while the app entry point, SwiftUI/AppKit integration, and OpenClaw management flows (install, Gateway, providers, channels, and TUI launch) live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`, and the unified local control and test harness lives in `Tests/Harness`. Developer scripts are in `Scripts/`, release resources are in `Resources/Release`, packaging outputs are written to `dist/`, run artifacts are written to `Artifacts/`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`. Project-local skills live under `.agents/skills/`.
 
+Machine-local signing material belongs under `.local/` inside the repo root when you need project-scoped secrets that must not be committed. Keep `.p12`, `.p8`, passwords, and generated secret files there, not in `docs/`, `Resources/Release/`, or tracked source directories.
+
 `References/` is for committed, pinned upstream snapshots and design material that contributors or agents need locally for comparison. It is not the main codepath, and it is not a scratch space for temporary clones, worktrees, build outputs, or notes. When work touches OpenClaw-specific behavior, installation flow, protocol details, or API assumptions, inspect `References/openclaw` source code first and treat it as the primary reference for OpenClaw implementation details.
 
 ## OpenClaw Reference Workflow
@@ -50,6 +52,7 @@ Use the package root for all commands:
 - `python3 Tests/Harness/clawbarctl.py logs assert --file <path> --contains "..."`: assert required or forbidden log patterns in a recorded log file.
 - `OUTPUT_FORMAT=dmg ./Scripts/package_app.sh`: build a local `.app` and `.dmg` under `dist/`.
 - `./Scripts/sign_and_notarize.sh`: sign and notarize a local build after setting `SIGNING_IDENTITY` and the required Apple notary environment variables.
+- `python3 Scripts/prepare_signing_assets.py --source-dir <path> --output-dir .local/signing ...`: normalize local signing exports into ignored project-local files for `sign_and_notarize.sh` and GitHub Environment setup.
 
 Compatibility note:
 

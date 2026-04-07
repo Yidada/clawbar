@@ -21,6 +21,8 @@
   正式 macOS 发布所需的签名、notarization、DMG 流程，以及必须准备的 GitHub secrets。
 - `2026-04-06-local-signing-guide.md`
   面向本地开发者的详细签名与 notarization 操作指引，包括证书准备、API key、脚本用法和常见故障排查。
+- `2026-04-07-main-branch-packaging-setup.md`
+  说明哪些签名配置可以保存在项目内但必须被 Git 忽略，以及如何把同一套 secrets 安全接到 `main` 自动打包和 tag release workflow。
 
 ## 文档约定
 

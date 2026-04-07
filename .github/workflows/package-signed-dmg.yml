@@ -1,0 +1,136 @@
+name: Package Signed DMG
+
+on:
+  workflow_call:
+    inputs:
+      app-version:
+        required: true
+        type: string
+      app-build:
+        required: true
+        type: string
+      dmg-basename:
+        required: true
+        type: string
+      artifact-name:
+        required: true
+        type: string
+      artifact-retention-days:
+        required: false
+        default: 14
+        type: number
+      publish-release:
+        required: false
+        default: false
+        type: boolean
+      release-tag:
+        required: false
+        default: ""
+        type: string
+      release-title:
+        required: false
+        default: ""
+        type: string
+      release-notes:
+        required: false
+        default: ""
+        type: string
+    secrets:
+      APPLE_DEVELOPER_ID_CERT_BASE64:
+        required: true
+      APPLE_DEVELOPER_ID_CERT_PASSWORD:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
+      APPLE_NOTARY_KEY_ID:
+        required: true
+      APPLE_NOTARY_ISSUER_ID:
+        required: true
+      APPLE_NOTARY_API_KEY_BASE64:
+        required: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+
+jobs:
+  package:
+    runs-on: macos-15
+    environment: release-signing
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 26.2
+        run: |
+          sudo xcode-select -s "$DEVELOPER_DIR"
+          xcodebuild -version
+          swift --version
+
+      - name: Run tests
+        run: swift test -v
+
+      - name: Set up release signing
+        id: setup-signing
+        uses: ./.github/actions/setup-release-signing
+        with:
+          apple-developer-id-cert-base64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_BASE64 }}
+          apple-developer-id-cert-password: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
+          apple-notary-api-key-base64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+
+      - name: Package, sign, notarize, and validate DMG
+        env:
+          APP_VERSION: ${{ inputs.app-version }}
+          APP_BUILD: ${{ inputs.app-build }}
+          DMG_BASENAME: ${{ inputs.dmg-basename }}
+          OUTPUT_FORMAT: dmg
+          NOTARIZE: 1
+          SIGNING_IDENTITY: ${{ steps.setup-signing.outputs.signing-identity }}
+          SIGNING_KEYCHAIN: ${{ steps.setup-signing.outputs.keychain-path }}
+          APPLE_NOTARY_API_KEY_PATH: ${{ steps.setup-signing.outputs.api-key-path }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: ./Scripts/sign_and_notarize.sh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            dist/Clawbar.app
+            dist/${{ inputs.dmg-basename }}.dmg
+          if-no-files-found: error
+          retention-days: ${{ inputs.artifact-retention-days }}
+
+      - name: Publish GitHub release
+        if: ${{ inputs.publish-release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          RELEASE_TITLE: ${{ inputs.release-title }}
+          RELEASE_NOTES: ${{ inputs.release-notes }}
+          DMG_PATH: dist/${{ inputs.dmg-basename }}.dmg
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$DMG_PATH" --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "$DMG_PATH" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES"
+          fi
+
+      - name: Clean up temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          security delete-keychain "${{ steps.setup-signing.outputs.keychain-path }}" >/dev/null 2>&1 || true
+          rm -f "${{ steps.setup-signing.outputs.api-key-path }}" >/dev/null 2>&1 || true

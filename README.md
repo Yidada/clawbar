@@ -87,7 +87,27 @@ For local signing and notarization validation, set `SIGNING_IDENTITY` and the re
 ./Scripts/sign_and_notarize.sh
 ```
 
-Tagged releases use the GitHub Actions release pipeline. Pushing a `v*` tag runs tests, signs the app, submits it for notarization, staples the result, and publishes the DMG to GitHub Releases.
+To save local signing configuration inside the project without committing secrets, prepare the ignored `.local/signing/` directory:
+
+```bash
+python3 Scripts/prepare_signing_assets.py \
+  --source-dir /absolute/path/to/signing-bundle \
+  --output-dir .local/signing \
+  --team-id YOUR_TEAM_ID \
+  --signing-identity "Developer ID Application: Your Name (YOUR_TEAM_ID)" \
+  --notary-key-id YOUR_KEY_ID \
+  --notary-issuer-id YOUR_ISSUER_ID
+```
+
+After that, `source .local/signing/local-notary.env` before running `./Scripts/sign_and_notarize.sh`.
+The generated local env pins signing to `login.keychain-db` so local packaging does not depend on any temporary signing keychain left in your user search list.
+
+GitHub Actions now supports two packaging paths from the same signing setup:
+
+- `push` to `main`: run tests, sign, notarize, and upload the app + DMG as workflow artifacts
+- `push` of `v*` tags: run the release pipeline and publish the DMG to GitHub Releases
+
+Both workflows read secrets from the GitHub Environment named `release-signing`, and both now delegate to the same reusable packaging workflow so the signing, notarization, artifact upload, and release behavior stay aligned.
 
 ## Docs
 
@@ -95,6 +115,7 @@ Tagged releases use the GitHub Actions release pipeline. Pushing a `v*` tag runs
 - [Tests/Harness/README.md](Tests/Harness/README.md) for the local control and test harness
 - [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md) for the release pipeline and required GitHub secrets
 - [docs/2026-04-06-local-signing-guide.md](docs/2026-04-06-local-signing-guide.md) for local certificate, signing, and notarization steps
+- [docs/2026-04-07-main-branch-packaging-setup.md](docs/2026-04-07-main-branch-packaging-setup.md) for ignored local signing files and GitHub Environment setup
 
 ## OpenClaw Reference Workflow
 

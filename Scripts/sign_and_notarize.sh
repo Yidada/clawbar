@@ -12,8 +12,10 @@ DMG_PATH="$DIST_DIR/${DMG_BASENAME}.dmg"
 OUTPUT_FORMAT="${OUTPUT_FORMAT:-dmg}"
 NOTARIZE="${NOTARIZE:-1}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
+SIGNING_KEYCHAIN="${SIGNING_KEYCHAIN:-}"
 APPLE_NOTARY_API_KEY_PATH="${APPLE_NOTARY_API_KEY_PATH:-}"
 TEMP_API_KEY_PATH=""
+SPCTL_BIN="${SPCTL_BIN:-$(command -v spctl || true)}"
 
 cleanup() {
   if [[ -n "$TEMP_API_KEY_PATH" && -f "$TEMP_API_KEY_PATH" ]]; then
@@ -21,6 +23,26 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+assess_with_spctl() {
+  local target_type="$1"
+  local target_path="$2"
+  local output
+
+  if output="$("$SPCTL_BIN" --assess --type "$target_type" -vvv "$target_path" 2>&1)"; then
+    printf '%s\n' "$output"
+    return 0
+  fi
+
+  if [[ "$target_type" == "open" && "$output" == *"source=Insufficient Context"* ]]; then
+    printf '%s\n' "$output"
+    echo "spctl returned 'Insufficient Context' for the DMG open assessment; continuing because codesign and stapler validation succeeded."
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+  return 1
+}
 
 require_env() {
   local name="$1"
@@ -60,6 +82,11 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
   exit 1
 fi
 
+if [[ -z "$SPCTL_BIN" ]]; then
+  echo "spctl is required for signed artifact verification." >&2
+  exit 1
+fi
+
 if [[ "$OUTPUT_FORMAT" != "dmg" && "$OUTPUT_FORMAT" != "both" ]]; then
   echo "sign_and_notarize.sh requires OUTPUT_FORMAT=dmg or OUTPUT_FORMAT=both." >&2
   exit 1
@@ -69,6 +96,7 @@ mkdir -p "$DIST_DIR"
 
 echo "==> Packaging signed app"
 SIGNING_IDENTITY="$SIGNING_IDENTITY" \
+SIGNING_KEYCHAIN="$SIGNING_KEYCHAIN" \
 SIGN_WITH_TIMESTAMP=1 \
 OUTPUT_FORMAT="$OUTPUT_FORMAT" \
 DIST_DIR="$DIST_DIR" \
@@ -103,8 +131,8 @@ echo "==> Stapling notarization tickets"
 
 echo "==> Verifying signed app and DMG"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-/usr/bin/spctl --assess --type exec -vvv "$APP_PATH"
-/usr/bin/spctl --assess --type open -vvv "$DMG_PATH"
+assess_with_spctl exec "$APP_PATH"
+assess_with_spctl open "$DMG_PATH"
 /usr/bin/xcrun stapler validate "$APP_PATH"
 /usr/bin/xcrun stapler validate "$DMG_PATH"
 

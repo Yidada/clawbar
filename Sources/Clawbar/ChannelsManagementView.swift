@@ -44,6 +44,7 @@ enum ChannelKind: String, CaseIterable, Identifiable {
 }
 
 struct ChannelsManagementView: View {
+    @AppStorage("clawbar.debug.enabled") private var globalDebugEnabled = false
     @AppStorage("clawbar.channels.default") private var defaultChannelRawValue = ChannelKind.feishu.rawValue
     @AppStorage("clawbar.channels.wechat.enabled") private var wechatEnabled = false
     @AppStorage("clawbar.channels.feishu.logsExpanded") private var feishuLogsExpanded = false
@@ -51,10 +52,6 @@ struct ChannelsManagementView: View {
     @StateObject private var feishuManager = OpenClawFeishuChannelManager.shared
     @StateObject private var wechatManager = OpenClawChannelManager.shared
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.openURL) private var openURL
-
-    @State private var feishuAppID = ""
-    @State private var feishuAppSecret = ""
 
     private var theme: ManagementTheme {
         ManagementTheme(colorScheme: colorScheme)
@@ -98,24 +95,12 @@ struct ChannelsManagementView: View {
             set: { newValue in
                 if newValue {
                     guard feishuCanEnableFromToggle else { return }
-                    feishuManager.enable(using: feishuCredentialsOrNil)
+                    feishuManager.enable()
                 } else {
                     feishuManager.disable()
                 }
             }
         )
-    }
-
-    private var feishuSetupModeBinding: Binding<FeishuSetupMode> {
-        Binding(
-            get: { feishuManager.snapshot.setupMode },
-            set: { feishuManager.selectSetupMode($0) }
-        )
-    }
-
-    private var feishuCredentialsOrNil: FeishuAppCredentials? {
-        let credentials = FeishuAppCredentials(appID: feishuAppID, appSecret: feishuAppSecret)
-        return feishuManager.snapshot.setupMode == .useProvidedCredentials && credentials.isComplete ? credentials : nil
     }
 
     var body: some View {
@@ -201,6 +186,30 @@ struct ChannelsManagementView: View {
                 .labelsHidden()
                 .pickerStyle(.segmented)
             }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("调试显示")
+                    .font(.headline)
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("全局 Debug")
+                            .font(.subheadline.weight(.semibold))
+
+                        Text("开发环境默认展示调试日志；线上环境打开后也会展示。")
+                            .font(.caption)
+                            .foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+
+                    Toggle("全局 Debug", isOn: $globalDebugEnabled)
+                        .labelsHidden()
+                }
+            }
+            .padding(14)
+            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .padding(20)
         .background(theme.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -264,63 +273,31 @@ struct ChannelsManagementView: View {
                 .padding(14)
                 .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                if !feishuManager.snapshot.pluginInstalled {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("安装方式")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(theme.secondaryText)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("机器人绑定")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.secondaryText)
 
-                        Picker("安装方式", selection: feishuSetupModeBinding) {
-                            ForEach(feishuSetupModeOptions) { mode in
-                                Text(mode.title).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .disabled(feishuManager.isBusy)
+                    Text("仅保留飞书扫码配置/创建机器人；如需更换当前机器人，点击“重新绑定”即可。")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                        Text(feishuManager.snapshot.setupMode.detail)
+                    if feishuManager.snapshot.channelBound {
+                        Text("当前已检测到可用的 Feishu 机器人配置。顶部开关只控制 channel 的启用与停用，不会改动绑定关系。")
                             .font(.caption)
                             .foregroundStyle(theme.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        if !feishuManager.snapshot.reusableConfiguredBotAvailable {
-                            Text("当前没有检测到可复用的 OpenClaw Feishu 机器人配置。")
-                                .font(.caption)
-                                .foregroundStyle(theme.secondaryText)
-                        }
-                    }
-                    .padding(14)
-                    .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-
-                if feishuManager.snapshot.setupMode == .useProvidedCredentials,
-                   !feishuManager.snapshot.pluginInstalled {
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("App ID，例如 cli_xxx", text: $feishuAppID)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(theme.inputBorder, lineWidth: 1)
-                            )
-
-                        SecureField("App Secret", text: $feishuAppSecret)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(theme.inputBorder, lineWidth: 1)
-                            )
+                    } else {
+                        Text("当前还没有绑定机器人；完成扫码后，Clawbar 会继续安装插件并写入配置。")
+                            .font(.caption)
+                            .foregroundStyle(theme.secondaryText)
                     }
                 }
+                .padding(14)
+                .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                 if let qrCodeURL = feishuManager.snapshot.qrCodeURL,
-                   let qrURL = URL(string: qrCodeURL),
-                   !feishuManager.snapshot.pluginInstalled {
+                   let qrURL = URL(string: qrCodeURL) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("飞书扫码")
                             .font(.caption.weight(.semibold))
@@ -353,58 +330,30 @@ struct ChannelsManagementView: View {
                     }
                 }
 
-                HStack(spacing: 10) {
-                    if feishuManager.isOnboardingActive {
-                        Button("取消流程") {
-                            feishuManager.cancelActiveSetupFlow()
-                        }
-                        .buttonStyle(.bordered)
-
-                        if let browserURL = feishuManager.snapshot.browserURL,
-                           let url = URL(string: browserURL) {
-                            Button("在浏览器打开") {
-                                openURL(url)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(ChannelKind.feishu.accentColor)
-                        }
-                    } else {
-                        Button(feishuManager.primaryActionTitle) {
-                            if feishuManager.snapshot.stage == .configure,
-                               let browserURL = feishuManager.snapshot.browserURL,
-                               let url = URL(string: browserURL) {
-                                openURL(url)
-                            } else {
-                                feishuManager.runPrimaryAction(existingAppCredentials: feishuCredentialsOrNil)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(ChannelKind.feishu.accentColor)
-                        .disabled(feishuPrimaryActionDisabled)
-                    }
-
-                    Button("刷新状态") {
-                        feishuManager.refreshStatus()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(feishuManager.isBusy)
+                Button(feishuManager.bindingActionTitle) {
+                    feishuManager.startQRCodeBinding()
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(ChannelKind.feishu.accentColor)
+                .disabled(feishuSetupActionDisabled)
 
-                DisclosureGroup("展开日志", isExpanded: $feishuLogsExpanded) {
-                    ScrollView {
-                        Text(trimmedNonEmpty(feishuManager.lastCommandOutput) ?? "暂无日志")
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                            .padding(12)
+                if shouldShowFeishuLogs {
+                    DisclosureGroup("展开日志", isExpanded: $feishuLogsExpanded) {
+                        ScrollView {
+                            Text(trimmedNonEmpty(feishuManager.lastCommandOutput) ?? "暂无日志")
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                                .padding(12)
+                        }
+                        .frame(minHeight: 120, maxHeight: 220)
+                        .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(theme.inputBorder, lineWidth: 1)
+                        )
+                        .padding(.top, 6)
                     }
-                    .frame(minHeight: 120, maxHeight: 220)
-                    .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(theme.inputBorder, lineWidth: 1)
-                    )
-                    .padding(.top, 6)
                 }
 
                 if feishuManager.isBusy {
@@ -426,31 +375,20 @@ struct ChannelsManagementView: View {
         }
     }
 
-    private var feishuPrimaryActionDisabled: Bool {
-        if feishuManager.isBusy {
-            return true
-        }
-
-        if feishuManager.primaryAction == .enable {
-            switch feishuManager.snapshot.setupMode {
-            case .reuseConfiguredBot:
-                return !feishuManager.snapshot.reusableConfiguredBotAvailable
-            case .useProvidedCredentials:
-                return feishuCredentialsOrNil == nil
-            case .createOrConfigureNewBot:
-                return false
-            }
-        }
-
-        return false
+    private var feishuSetupActionDisabled: Bool {
+        feishuManager.activeAction != nil
     }
 
     private var feishuCanEnableFromToggle: Bool {
-        feishuManager.canStartEnableFlow && !feishuPrimaryActionDisabled
+        feishuManager.canToggleChannelEnabled && !feishuManager.isBusy
     }
 
     private var feishuToggleDisabled: Bool {
         feishuManager.isBusy || (!feishuManager.isEnabled && !feishuCanEnableFromToggle)
+    }
+
+    private var shouldShowFeishuLogs: Bool {
+        ClawbarDebugOptions.shouldShowDebugUI(globalDebugEnabled: globalDebugEnabled)
     }
 
     private var wechatCard: some View {
@@ -666,14 +604,6 @@ struct ChannelsManagementView: View {
     private var shouldShowInstallButton: Bool {
         wechatEnabled && wechatManager.shouldOfferInstall
     }
-
-    private var feishuSetupModeOptions: [FeishuSetupMode] {
-        if feishuManager.snapshot.reusableConfiguredBotAvailable {
-            return FeishuSetupMode.allCases
-        }
-        return FeishuSetupMode.allCases.filter { $0 != .reuseConfiguredBot }
-    }
-
     private var feishuStatusHeadline: String {
         feishuManager.snapshot.summary
     }

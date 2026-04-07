@@ -49,7 +49,7 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
-        manager.enable()
+        manager.startSetup()
 
         XCTAssertEqual(capture.command, "npx -y @larksuite/openclaw-lark install --use-existing")
         XCTAssertTrue(manager.lastCommandOutput.contains("--use-existing"))
@@ -62,7 +62,7 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
         manager.selectSetupMode(.useProvidedCredentials)
-        manager.enable(using: FeishuAppCredentials(appID: "cli_test", appSecret: "super-secret"))
+        manager.startSetup(using: FeishuAppCredentials(appID: "cli_test", appSecret: "super-secret"))
 
         XCTAssertEqual(capture.command, "npx -y @larksuite/openclaw-lark install --app 'cli_test:super-secret'")
         XCTAssertTrue(manager.lastCommandOutput.contains("cli_test:<redacted>"))
@@ -83,7 +83,7 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
-        manager.enable()
+        manager.startSetup()
         await waitUntil(
             timeoutNanoseconds: 1_000_000_000,
             condition: { manager.snapshot.qrCodeURL != nil }
@@ -195,7 +195,7 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
-        manager.enable()
+        manager.startSetup()
         await waitUntilIdle(for: manager, timeoutNanoseconds: 2_000_000_000)
 
         let commands = runner.recordedCommands()
@@ -223,7 +223,7 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         manager.refreshStatus()
         await waitUntilIdle(for: manager)
-        manager.enable()
+        manager.startSetup()
         await waitUntil(
             timeoutNanoseconds: 1_000_000_000,
             condition: { manager.snapshot.qrCodeURL != nil }
@@ -237,6 +237,62 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         XCTAssertFalse(manager.isBusy)
         XCTAssertTrue(manager.snapshot.summary.contains("已取消"))
+    }
+
+    func testEnableDoesNotStartInstallFlowWhenPluginMissing() async {
+        let capture = StreamingCommandCapture()
+        let manager = makeNotInstalledManager(makeStreamingProcess: capture.factory)
+
+        manager.refreshStatus()
+        await waitUntilIdle(for: manager)
+        manager.enable()
+
+        XCTAssertNil(capture.command)
+        XCTAssertFalse(manager.snapshot.channelEnabled)
+    }
+
+    func testRefreshStatusUsesConfigEnabledAsToggleState() async {
+        let runner = RecordingCommandRunner([
+            MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): [
+                .result(.init(output: feishuChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): [
+                .result(.init(output: feishuChannelsListOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-lark", "--json"]): [
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
+                .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): [
+                .result(.init(output: "false\n", exitStatus: 0, timedOut: false)),
+            ],
+        ])
+
+        let manager = OpenClawFeishuChannelManager(
+            environmentProvider: { [:] },
+            runCommand: runner.runner
+        )
+
+        manager.refreshStatus()
+        await waitUntilIdle(for: manager)
+
+        XCTAssertTrue(manager.snapshot.channelBound)
+        XCTAssertFalse(manager.snapshot.channelEnabled)
+        XCTAssertEqual(manager.snapshot.summary, "Feishu 已绑定，Channel 已停用")
     }
 
     func testDisableWritesConfigWithoutUninstallingPlugin() async {

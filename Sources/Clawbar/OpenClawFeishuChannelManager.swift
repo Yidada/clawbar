@@ -100,6 +100,7 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
     let onboardingState: FeishuOnboardingState
     let pluginInstalled: Bool
     let channelEnabled: Bool
+    let channelBound: Bool
     let gatewayReachable: Bool
     let doctorHealthy: Bool?
     let openClawBinaryPath: String?
@@ -122,6 +123,7 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
         onboardingState: .idle,
         pluginInstalled: false,
         channelEnabled: false,
+        channelBound: false,
         gatewayReachable: false,
         doctorHealthy: nil,
         openClawBinaryPath: nil,
@@ -145,6 +147,7 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
         onboardingState: FeishuOnboardingState? = nil,
         pluginInstalled: Bool? = nil,
         channelEnabled: Bool? = nil,
+        channelBound: Bool? = nil,
         gatewayReachable: Bool? = nil,
         doctorHealthy: Bool?? = nil,
         openClawBinaryPath: String?? = nil,
@@ -167,6 +170,7 @@ struct FeishuChannelStatusSnapshot: Equatable, Sendable {
             onboardingState: onboardingState ?? self.onboardingState,
             pluginInstalled: pluginInstalled ?? self.pluginInstalled,
             channelEnabled: channelEnabled ?? self.channelEnabled,
+            channelBound: channelBound ?? self.channelBound,
             gatewayReachable: gatewayReachable ?? self.gatewayReachable,
             doctorHealthy: doctorHealthy ?? self.doctorHealthy,
             openClawBinaryPath: openClawBinaryPath ?? self.openClawBinaryPath,
@@ -287,6 +291,10 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         toggleIntent || snapshot.channelEnabled
     }
 
+    var canToggleChannelEnabled: Bool {
+        snapshot.pluginInstalled && snapshot.channelBound
+    }
+
     var isOnboardingActive: Bool {
         switch snapshot.onboardingState {
         case .waitingForScan, .pollingRegistration, .installingPlugin, .enablingChannel:
@@ -297,11 +305,18 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     }
 
     var canStartEnableFlow: Bool {
-        guard primaryAction == .enable else { return false }
+        primaryAction == .enable && canToggleChannelEnabled
+    }
+
+    var canStartSetupFlow: Bool {
         if snapshot.setupMode == .reuseConfiguredBot {
             return snapshot.reusableConfiguredBotAvailable
         }
         return true
+    }
+
+    var bindingActionTitle: String {
+        snapshot.channelBound ? "重新绑定" : "扫码配置/创建机器人"
     }
 
     var statusLabel: String {
@@ -416,7 +431,11 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     func runPrimaryAction(existingAppCredentials: FeishuAppCredentials? = nil) {
         switch primaryAction {
         case .enable:
-            enable(using: existingAppCredentials)
+            if canToggleChannelEnabled {
+                enable()
+            } else {
+                startSetup(using: existingAppCredentials)
+            }
         case .disable:
             disable()
         case .retry, .refresh:
@@ -435,13 +454,14 @@ final class OpenClawFeishuChannelManager: ObservableObject {
 
     func enable(using manualCredentials: FeishuAppCredentials? = nil) {
         guard activeAction == nil, onboardingTask == nil else { return }
-        guard canStartEnableFlow else { return }
+        guard canToggleChannelEnabled else { return }
         toggleIntent = true
+        setChannelEnabled(true, summary: "正在启用 Feishu Channel...")
+    }
 
-        if snapshot.pluginInstalled {
-            setChannelEnabled(true, summary: "正在重新启用 Feishu Channel...")
-            return
-        }
+    func startSetup(using manualCredentials: FeishuAppCredentials? = nil) {
+        guard activeAction == nil, onboardingTask == nil else { return }
+        guard canStartSetupFlow else { return }
 
         switch snapshot.setupMode {
         case .reuseConfiguredBot:
@@ -452,7 +472,6 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             )
         case .useProvidedCredentials:
             guard let manualCredentials, manualCredentials.isComplete else {
-                toggleIntent = false
                 return
             }
             startInstallFlow(
@@ -463,6 +482,21 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         case .createOrConfigureNewBot:
             startRegistrationFlow()
         }
+    }
+
+    func startQRCodeBinding() {
+        if onboardingTask != nil {
+            onboardingTask?.cancel()
+            onboardingTask = nil
+        }
+        if activeProcess != nil {
+            activeProcess?.terminate()
+            activeProcess = nil
+        }
+        activeAction = nil
+        pendingOnboardingDefaults = nil
+        snapshot = snapshot.updating(setupMode: .createOrConfigureNewBot)
+        startRegistrationFlow()
     }
 
     func disable() {
@@ -778,6 +812,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                         stage: .preflight,
                         onboardingState: .idle,
                         channelEnabled: false,
+                        channelBound: false,
                         gatewayReachable: false,
                         openClawBinaryPath: .some(nil),
                         summary: "未检测到 OpenClaw",
@@ -1267,7 +1302,13 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         }
 
         let pluginInstalled = feishuChannel != nil || pluginInspection?.isActive == true || pluginInfo.pluginInstalled
-        let channelEnabled = feishuChannel?.configured ?? false
+        let channelEnabled = readBooleanConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.enabled"
+        ) ?? (feishuChannel?.configured ?? false)
+        let channelBound = (feishuChannel?.configured ?? false) || reusableConfiguredBotAvailable
         let gatewayReachable = feishuChannel?.running ?? false
 
         if !pluginInstalled {
@@ -1276,6 +1317,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 onboardingState: .selectingMode,
                 pluginInstalled: false,
                 channelEnabled: false,
+                channelBound: reusableConfiguredBotAvailable,
                 gatewayReachable: false,
                 openClawBinaryPath: .some(displayOpenClawPath),
                 npxBinaryPath: .some(displayNpxPath),
@@ -1291,12 +1333,13 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             )
         }
 
-        if !channelEnabled {
+        if !channelBound {
             return FeishuChannelStatusSnapshot.idle.updating(
-                stage: .verify,
+                stage: .install,
                 onboardingState: .idle,
                 pluginInstalled: true,
-                channelEnabled: false,
+                channelEnabled: channelEnabled,
+                channelBound: false,
                 gatewayReachable: gatewayReachable,
                 openClawBinaryPath: .some(displayOpenClawPath),
                 npxBinaryPath: .some(displayNpxPath),
@@ -1304,10 +1347,28 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 pluginVersion: .some(pluginInfo.pluginVersion),
                 reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
                 setupMode: resolvedSetupMode,
-                summary: "Feishu 插件已安装，Channel 未启用",
-                detail: pluginInspection?.isActive == true
-                    ? "插件已激活，但 runtime 里还没有已配置的 Feishu Channel。点击“重新启用”后，Clawbar 会写入 `channels.feishu.enabled=true` 并重启 Gateway。"
-                    : "点击“重新启用”后，Clawbar 会写入 `channels.feishu.enabled=true` 并重启 Gateway。",
+                summary: "Feishu 插件已安装，等待绑定机器人",
+                detail: "请通过下方二维码绑定新飞书机器人，或复用已有机器人配置。顶部开关只负责启用/停用 channel。",
+                logSummary: .some(logSummary(from: infoResult.output))
+            )
+        }
+
+        if !channelEnabled {
+            return FeishuChannelStatusSnapshot.idle.updating(
+                stage: .verify,
+                onboardingState: .idle,
+                pluginInstalled: true,
+                channelEnabled: false,
+                channelBound: true,
+                gatewayReachable: gatewayReachable,
+                openClawBinaryPath: .some(displayOpenClawPath),
+                npxBinaryPath: .some(displayNpxPath),
+                openClawVersion: .some(pluginInfo.openClawVersion),
+                pluginVersion: .some(pluginInfo.pluginVersion),
+                reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
+                setupMode: resolvedSetupMode,
+                summary: "Feishu 已绑定，Channel 已停用",
+                detail: "打开开关后，Clawbar 只会写入 `channels.feishu.enabled=true` 并重启 Gateway；如需更换机器人，请使用下方绑定流程。",
                 logSummary: .some(logSummary(from: infoResult.output))
             )
         }
@@ -1318,6 +1379,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 onboardingState: .ready,
                 pluginInstalled: true,
                 channelEnabled: true,
+                channelBound: true,
                 gatewayReachable: true,
                 openClawBinaryPath: .some(displayOpenClawPath),
                 npxBinaryPath: .some(displayNpxPath),
@@ -1338,6 +1400,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 onboardingState: .diagnosing,
                 pluginInstalled: true,
                 channelEnabled: true,
+                channelBound: true,
                 gatewayReachable: false,
                 doctorHealthy: .some(false),
                 openClawBinaryPath: .some(displayOpenClawPath),
@@ -1357,6 +1420,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             onboardingState: .idle,
             pluginInstalled: true,
             channelEnabled: true,
+            channelBound: true,
             gatewayReachable: false,
             doctorHealthy: .some(true),
             openClawBinaryPath: .some(displayOpenClawPath),

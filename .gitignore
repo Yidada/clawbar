@@ -2,6 +2,8 @@
 dist/
 Artifacts/
 .local/
+.playwright/
+.playwright-mcp/
 .claude/worktrees/
 .DS_Store
 node_modules/

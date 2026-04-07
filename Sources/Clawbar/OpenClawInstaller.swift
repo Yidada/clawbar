@@ -234,7 +234,7 @@ final class OpenClawInstaller: ObservableObject {
         let overrideState = OpenClawInstallerOverride.from(environment: environment)
         return OpenClawInstaller(overrideState: overrideState, autoStartTimer: overrideState == nil)
     }()
-    nonisolated static let defaultRefreshInterval: TimeInterval = 30
+    nonisolated static let defaultRefreshInterval: TimeInterval = 300
     nonisolated static let installScriptURL = URL(string: "https://openclaw.ai/install.sh")!
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
     nonisolated static let updateCommand = "openclaw update --yes"

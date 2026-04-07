@@ -2,6 +2,7 @@ public enum MenuContentElement: String, Equatable, Sendable {
     case headerTitle
     case headerSubtitle
     case headerMetadata
+    case refreshButton
     case binaryPath
     case providerRow
     case gatewayRow

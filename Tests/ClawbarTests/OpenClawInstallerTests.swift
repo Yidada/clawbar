@@ -24,6 +24,10 @@ final class OpenClawInstallerTests: XCTestCase {
         )
     }
 
+    func testDefaultRefreshIntervalIsFiveMinutes() {
+        XCTAssertEqual(OpenClawInstaller.defaultRefreshInterval, 300)
+    }
+
     func testParseDetectedBinaryPathReturnsTrimmedCommandPath() {
         XCTAssertEqual(
             OpenClawInstaller.parseDetectedBinaryPath("/opt/homebrew/bin/openclaw\n"),

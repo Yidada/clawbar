@@ -53,28 +53,31 @@ struct MenuContentView: View {
         }
         .frame(width: model.width)
         .fixedSize(horizontal: false, vertical: true)
-        .onAppear {
-            installer.refreshInstallationStatus()
-        }
     }
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 7) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(snapshot.title)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(theme.primaryText)
-                    .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerTitle))
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snapshot.title)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerTitle))
 
-                Text(snapshot.subtitle)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerSubtitle))
+                    Text(snapshot.subtitle)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerSubtitle))
+                }
+
+                Spacer(minLength: 10)
+
+                refreshButton
             }
 
             HStack(spacing: 6) {
-                if installer.isRefreshingStatus {
+                if showsInitialRefreshIndicator {
                     ProgressView()
                         .controlSize(.small)
                         .tint(theme.accent)
@@ -94,6 +97,36 @@ struct MenuContentView: View {
                 }
             }
         }
+    }
+
+    private var refreshButton: some View {
+        Button {
+            installer.refreshInstallationStatus(force: true)
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(theme.rowBackground)
+
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(theme.panelBorder.opacity(0.85), lineWidth: 1)
+
+                if installer.isRefreshingStatus {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(theme.accent)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(theme.actionIcon)
+                }
+            }
+            .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+        .disabled(installer.isRefreshingStatus || installer.isBusy)
+        .help("刷新状态")
+        .accessibilityLabel(Text("刷新状态"))
+        .accessibilityIdentifier(model.accessibilityIdentifier(for: .refreshButton))
     }
 
     private var statusRowsSection: some View {
@@ -308,6 +341,10 @@ struct MenuContentView: View {
 
     private var overallHealthLevel: OpenClawHealthLevel {
         installer.healthSnapshot?.overallLevel ?? .unknown
+    }
+
+    private var showsInitialRefreshIndicator: Bool {
+        installer.isRefreshingStatus && installer.lastStatusRefreshDate == nil
     }
 
     private func applicationManagementSection(for dimension: OpenClawHealthDimension) -> ApplicationManagementSection {

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let setActivationPolicy: (AppActivationPolicy) -> Void
     private let showSmokeTestWindow: () -> Void
     private let activateApplication: (Bool) -> Void
+    private let refreshInstallerStatus: @MainActor () -> Void
 
     override init() {
         self.lifecycleController = AppLifecycleController()
@@ -21,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.activateApplication = { ignoringOtherApps in
             NSApp.activate(ignoringOtherApps: ignoringOtherApps)
         }
+        self.refreshInstallerStatus = {
+            OpenClawInstaller.shared.refreshInstallationStatus(force: true)
+        }
         super.init()
     }
 
@@ -29,13 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environmentProvider: @escaping () -> [String: String],
         setActivationPolicy: @escaping (AppActivationPolicy) -> Void,
         showSmokeTestWindow: @escaping () -> Void,
-        activateApplication: @escaping (Bool) -> Void
+        activateApplication: @escaping (Bool) -> Void,
+        refreshInstallerStatus: @escaping @MainActor () -> Void
     ) {
         self.lifecycleController = lifecycleController
         self.environmentProvider = environmentProvider
         self.setActivationPolicy = setActivationPolicy
         self.showSmokeTestWindow = showSmokeTestWindow
         self.activateApplication = activateApplication
+        self.refreshInstallerStatus = refreshInstallerStatus
         super.init()
     }
 
@@ -63,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if launchPlan.activatesApp {
             activateApplication(true)
         }
+
+        refreshInstallerStatus()
     }
 }
 

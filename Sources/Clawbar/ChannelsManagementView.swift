@@ -605,11 +605,11 @@ struct ChannelsManagementView: View {
         wechatEnabled && wechatManager.shouldOfferInstall
     }
     private var feishuStatusHeadline: String {
-        feishuManager.snapshot.summary
+        feishuManager.displaySummary
     }
 
     private var feishuStatusDetail: String {
-        feishuManager.snapshot.detail
+        feishuManager.displayDetail
     }
 
     private func overviewMetric(title: String, value: String) -> some View {

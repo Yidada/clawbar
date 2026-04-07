@@ -319,6 +319,20 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         snapshot.channelBound ? "重新绑定" : "扫码配置/创建机器人"
     }
 
+    var displaySummary: String {
+        if let liveProgress = liveProgressStatus {
+            return liveProgress.summary
+        }
+        return snapshot.summary
+    }
+
+    var displayDetail: String {
+        if let liveProgress = liveProgressStatus {
+            return liveProgress.detail
+        }
+        return snapshot.detail
+    }
+
     var statusLabel: String {
         switch snapshot.stage {
         case .preflight:
@@ -932,7 +946,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         }
     }
 
-    private func applyOnboardingDefaultsAndEnable(_ context: FeishuOnboardingDefaultsContext) {
+    private func applyPostInstallDefaultsAndEnable(_ context: FeishuOnboardingDefaultsContext?) {
         let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let runCommand = runCommand
 
@@ -941,7 +955,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             stage: .verify,
             onboardingState: .enablingChannel,
             summary: "正在补齐飞书默认权限配置",
-            detail: "Clawbar 会把扫码得到的 owner 和域名信息写回 OpenClaw，再继续启用 Channel。"
+            detail: "Clawbar 会把飞书默认群聊权限和 OpenClaw 工具权限写回配置，再继续启用 Channel。"
         )
 
         Task.detached(priority: .userInitiated) {
@@ -965,36 +979,38 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             }
 
             do {
-                if context.tenantBrand == .lark {
+                if context?.tenantBrand == .lark {
                     try Self.writeJSONStringConfig(
                         openClawBinaryPath: openClawBinaryPath,
                         environment: environment,
                         runCommand: runCommand,
                         path: "channels.feishu.domain",
-                        value: context.tenantBrand?.configValue,
+                        value: context?.tenantBrand?.configValue,
                         log: { line in await MainActor.run { self.appendLogLine(line) } }
                     )
                 }
 
-                if let ownerOpenID = trimmedNonEmpty(context.ownerOpenID) {
+                let dmAllowFrom = Self.mergeUniqueString(
+                    "*",
+                    into: Self.readStringArrayConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.allowFrom"
+                    )
+                )
+
+                if let ownerOpenID = trimmedNonEmpty(context?.ownerOpenID) {
                     try Self.writeJSONStringConfig(
                         openClawBinaryPath: openClawBinaryPath,
                         environment: environment,
                         runCommand: runCommand,
                         path: "channels.feishu.dmPolicy",
-                        value: "allowlist",
+                        value: "open",
                         log: { line in await MainActor.run { self.appendLogLine(line) } }
                     )
 
-                    let allowFrom = Self.mergeUniqueString(
-                        ownerOpenID,
-                        into: Self.readStringArrayConfig(
-                            openClawBinaryPath: openClawBinaryPath,
-                            environment: environment,
-                            runCommand: runCommand,
-                            path: "channels.feishu.allowFrom"
-                        )
-                    )
+                    let allowFrom = Self.mergeUniqueString(ownerOpenID, into: dmAllowFrom)
                     try Self.writeJSONConfig(
                         openClawBinaryPath: openClawBinaryPath,
                         environment: environment,
@@ -1003,60 +1019,74 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                         value: allowFrom,
                         log: { line in await MainActor.run { self.appendLogLine(line) } }
                     )
-
-                    let currentGroupPolicy = Self.readStringConfig(
+                } else {
+                    try Self.writeJSONStringConfig(
                         openClawBinaryPath: openClawBinaryPath,
                         environment: environment,
                         runCommand: runCommand,
-                        path: "channels.feishu.groupPolicy"
-                    )
-                    if currentGroupPolicy == nil {
-                        try Self.writeJSONStringConfig(
-                            openClawBinaryPath: openClawBinaryPath,
-                            environment: environment,
-                            runCommand: runCommand,
-                            path: "channels.feishu.groupPolicy",
-                            value: "allowlist",
-                            log: { line in await MainActor.run { self.appendLogLine(line) } }
-                        )
-                    }
-
-                    let groupAllowFrom = Self.mergeUniqueString(
-                        ownerOpenID,
-                        into: Self.readStringArrayConfig(
-                            openClawBinaryPath: openClawBinaryPath,
-                            environment: environment,
-                            runCommand: runCommand,
-                            path: "channels.feishu.groupAllowFrom"
-                        )
+                        path: "channels.feishu.dmPolicy",
+                        value: "open",
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
                     )
                     try Self.writeJSONConfig(
                         openClawBinaryPath: openClawBinaryPath,
                         environment: environment,
                         runCommand: runCommand,
-                        path: "channels.feishu.groupAllowFrom",
-                        value: groupAllowFrom,
+                        path: "channels.feishu.allowFrom",
+                        value: dmAllowFrom,
                         log: { line in await MainActor.run { self.appendLogLine(line) } }
                     )
+                }
 
-                    var groups = Self.readJSONObjectConfig(
-                        openClawBinaryPath: openClawBinaryPath,
-                        environment: environment,
-                        runCommand: runCommand,
-                        path: "channels.feishu.groups"
-                    ) ?? [:]
-                    var wildcard = groups["*"] as? [String: Any] ?? [:]
-                    wildcard["enabled"] = true
-                    groups["*"] = wildcard
+                try Self.writeJSONStringConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "channels.feishu.groupPolicy",
+                    value: "open",
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
 
-                    try Self.writeJSONConfig(
-                        openClawBinaryPath: openClawBinaryPath,
-                        environment: environment,
-                        runCommand: runCommand,
-                        path: "channels.feishu.groups",
-                        value: groups,
-                        log: { line in await MainActor.run { self.appendLogLine(line) } }
-                    )
+                var groups = Self.readJSONObjectConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "channels.feishu.groups"
+                ) ?? [:]
+                var wildcard = groups["*"] as? [String: Any] ?? [:]
+                wildcard["enabled"] = true
+                wildcard["requireMention"] = false
+                groups["*"] = wildcard
+
+                try Self.writeJSONConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "channels.feishu.groups",
+                    value: groups,
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
+
+                try Self.writeJSONStringConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "tools.profile",
+                    value: "full",
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
+
+                try Self.writeJSONStringConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "tools.sessions.visibility",
+                    value: "all",
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
+
+                await MainActor.run {
+                    self.appendLogLine("Next step: open the Feishu bot chat and send /feishu auth to complete full user authorization.")
                 }
 
                 await MainActor.run {
@@ -1161,11 +1191,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
 
         if status == 0 {
             if action == .enable {
-                if let pendingOnboardingDefaults {
-                    applyOnboardingDefaultsAndEnable(pendingOnboardingDefaults)
-                } else {
-                    setChannelEnabled(true, summary: "Feishu 插件安装完成，正在启用 Channel...")
-                }
+                applyPostInstallDefaultsAndEnable(pendingOnboardingDefaults)
                 return
             }
 
@@ -1197,6 +1223,20 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         lastCommandOutput += text
         if !lastCommandOutput.hasSuffix("\n") {
             lastCommandOutput += "\n"
+        }
+    }
+
+    private var liveProgressStatus: (summary: String, detail: String)? {
+        guard !lastCommandOutput.isEmpty else { return nil }
+
+        switch snapshot.onboardingState {
+        case .waitingForScan, .pollingRegistration:
+            return nil
+        case .installingPlugin, .enablingChannel:
+            return Self.parseLiveProgressStatus(from: lastCommandOutput)
+        case .idle, .selectingMode, .diagnosing, .ready:
+            guard isBusy else { return nil }
+            return Self.parseLiveProgressStatus(from: lastCommandOutput)
         }
     }
 
@@ -1388,7 +1428,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
                 setupMode: resolvedSetupMode,
                 summary: "Feishu 已启用并可用",
-                detail: "Feishu Channel 已在 runtime 中运行；插件安装信息仅作为补充信号保留。",
+                detail: "Feishu Channel 已在 runtime 中运行，Clawbar 也已写入 `dmPolicy=open`、`tools.profile=full` 与 `tools.sessions.visibility=all`。若要打开文档、日历、群消息等完整用户态能力，请回到飞书机器人对话里发送 `/feishu auth` 完成授权。",
                 logSummary: .some(logSummary(from: infoResult.output))
             )
         }
@@ -1576,6 +1616,71 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             detail: "Clawbar 正在后台执行官方安装与配置命令。",
             continueURL: continueURL
         )
+    }
+
+    nonisolated static func parseLiveProgressStatus(from output: String) -> (summary: String, detail: String)? {
+        guard trimmedNonEmpty(output) != nil else { return nil }
+
+        let candidates: [([String], (summary: String, detail: String))] = [
+            (
+                [
+                    "$ openclaw config set tools.sessions.visibility",
+                    "$ openclaw config set tools.profile",
+                    "$ openclaw config set channels.feishu.groups",
+                    "$ openclaw config set channels.feishu.groupPolicy",
+                    "$ openclaw config set channels.feishu.allowFrom",
+                    "$ openclaw config set channels.feishu.dmPolicy",
+                ],
+                (
+                    "正在补齐默认权限配置",
+                    "Clawbar 正在把 Feishu 群聊默认权限和 OpenClaw 工具权限写回配置。"
+                )
+            ),
+            (
+                [
+                    "$ openclaw gateway restart --json",
+                    "Restarted LaunchAgent",
+                    "Restart the gateway",
+                    "Gateway service already loaded.",
+                ],
+                (
+                    "正在重启 OpenClaw Gateway",
+                    "日志显示 Gateway 正在重启并重新加载 Feishu 插件。"
+                )
+            ),
+            (
+                [
+                    "Validating provided credentials for App ID",
+                    "正在验证 App ID",
+                ],
+                (
+                    "正在验证 Feishu 机器人凭证",
+                    "官方安装器正在校验当前 App ID / App Secret。"
+                )
+            ),
+            (
+                [
+                    "Installing plugin dependencies",
+                    "Installing plugin from local package",
+                    "Packing @larksuite/openclaw-lark",
+                    "Installing new version",
+                    "Extracting /",
+                ],
+                (
+                    "正在安装 Feishu 官方插件",
+                    "官方安装器正在写入并安装 Feishu 插件文件。"
+                )
+            ),
+        ]
+
+        let latest = candidates.compactMap { markers, status -> (String.Index, (summary: String, detail: String))? in
+            let latestMarker = markers.compactMap { output.range(of: $0, options: .backwards)?.lowerBound }.max()
+            guard let latestMarker else { return nil }
+            return (latestMarker, status)
+        }
+        .max { lhs, rhs in lhs.0 < rhs.0 }
+
+        return latest?.1
     }
 
     private nonisolated static func queryDoctorStatus(

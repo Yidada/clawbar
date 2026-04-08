@@ -3,3 +3,4 @@ dist/
 Artifacts/
 .local/
 .claude/worktrees/
+.DS_Store

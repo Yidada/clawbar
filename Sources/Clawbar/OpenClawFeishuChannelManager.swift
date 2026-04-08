@@ -95,6 +95,49 @@ enum FeishuChannelAction: String, Equatable, Sendable {
     case refresh
 }
 
+enum FeishuPermissionMode: String, CaseIterable, Identifiable, Equatable, Sendable {
+    case onlyMe
+    case selected
+    case open
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .onlyMe:
+            return "仅自己"
+        case .selected:
+            return "指定 UID"
+        case .open:
+            return "全开放"
+        }
+    }
+}
+
+struct FeishuAdvancedPolicySnapshot: Equatable, Sendable {
+    let dmMode: FeishuPermissionMode
+    let dmUIDs: [String]
+    let groupMode: FeishuPermissionMode
+    let groupUIDs: [String]
+    let ownerOpenID: String?
+
+    static let `default` = FeishuAdvancedPolicySnapshot(
+        dmMode: .open,
+        dmUIDs: [],
+        groupMode: .open,
+        groupUIDs: [],
+        ownerOpenID: nil
+    )
+}
+
+struct FeishuAdvancedPolicyDraft: Equatable, Sendable {
+    var dmMode: FeishuPermissionMode
+    var dmUIDs: [String]
+    var groupMode: FeishuPermissionMode
+    var groupUIDs: [String]
+    var ownerOpenID: String?
+}
+
 struct FeishuChannelStatusSnapshot: Equatable, Sendable {
     let stage: FeishuChannelStage
     let onboardingState: FeishuOnboardingState
@@ -258,6 +301,9 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     @Published private(set) var lastCommandOutput = ""
     @Published private(set) var lastRefreshDate: Date?
     @Published private(set) var toggleIntent = false
+    @Published private(set) var advancedPolicySnapshot: FeishuAdvancedPolicySnapshot = .default
+    @Published private(set) var advancedPolicyBusy = false
+    @Published private(set) var advancedPolicyError: String?
 
     private let environmentProvider: EnvironmentProvider
     private let runCommand: CommandRunner
@@ -284,7 +330,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     }
 
     var isBusy: Bool {
-        isRefreshing || activeAction != nil || onboardingTask != nil
+        isRefreshing || activeAction != nil || onboardingTask != nil || advancedPolicyBusy
     }
 
     var isEnabled: Bool {
@@ -517,6 +563,220 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         guard activeAction == nil, onboardingTask == nil else { return }
         toggleIntent = false
         setChannelEnabled(false, summary: "正在停用 Feishu Channel...")
+    }
+
+    func loadAdvancedPolicy() {
+        guard !advancedPolicyBusy else { return }
+        advancedPolicyBusy = true
+        advancedPolicyError = nil
+
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
+        let runCommand = runCommand
+        let scannedOwnerOpenID = snapshot.scannedOwnerOpenID
+
+        Task.detached(priority: .utility) {
+            guard let openClawBinaryPath = ChannelCommandSupport.detectBinaryPath(
+                named: "openclaw",
+                environment: environment,
+                runCommand: runCommand
+            ) else {
+                await MainActor.run {
+                    self.advancedPolicyBusy = false
+                    self.advancedPolicyError = "没有找到 openclaw CLI，无法读取高级设置。"
+                }
+                return
+            }
+
+            let dmPolicy = Self.readStringConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.dmPolicy"
+            ) ?? "open"
+            let allowFrom = Self.readStringArrayConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.allowFrom"
+            )
+            let groupPolicy = Self.readStringConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.groupPolicy"
+            ) ?? "open"
+            let groups = Self.readJSONObjectConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.groups"
+            ) ?? [:]
+
+            let wildcard = groups["*"] as? [String: Any]
+            let groupAllowFrom = (wildcard?["allowFrom"] as? [Any])?.compactMap { $0 as? String } ?? []
+            let resolved = Self.resolveAdvancedPolicySnapshot(
+                dmPolicy: dmPolicy,
+                allowFrom: allowFrom,
+                groupPolicy: groupPolicy,
+                groupAllowFrom: groupAllowFrom,
+                ownerOpenID: scannedOwnerOpenID
+            )
+
+            await MainActor.run {
+                self.advancedPolicyBusy = false
+                self.advancedPolicySnapshot = resolved
+            }
+        }
+    }
+
+    func saveAdvancedPolicy(_ draft: FeishuAdvancedPolicyDraft) {
+        guard !advancedPolicyBusy else { return }
+        guard activeAction == nil, onboardingTask == nil else { return }
+
+        let normalized = Self.normalizeAdvancedPolicyDraft(draft)
+        if normalized.dmMode == .selected, normalized.dmUIDs.isEmpty {
+            advancedPolicyError = "DM 选择“指定 UID”时不能为空。"
+            return
+        }
+        if normalized.groupMode == .selected, normalized.groupUIDs.isEmpty {
+            advancedPolicyError = "Group 选择“指定 UID”时不能为空。"
+            return
+        }
+        if normalized.dmMode == .onlyMe || normalized.groupMode == .onlyMe {
+            guard trimmedNonEmpty(normalized.ownerOpenID) != nil else {
+                advancedPolicyError = "“仅自己”模式需要 owner Open ID。"
+                return
+            }
+        }
+
+        advancedPolicyBusy = true
+        advancedPolicyError = nil
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
+        let runCommand = runCommand
+
+        Task.detached(priority: .userInitiated) {
+            guard let openClawBinaryPath = ChannelCommandSupport.detectBinaryPath(
+                named: "openclaw",
+                environment: environment,
+                runCommand: runCommand
+            ) else {
+                await MainActor.run {
+                    self.advancedPolicyBusy = false
+                    self.advancedPolicyError = "没有找到 openclaw CLI，无法保存高级设置。"
+                }
+                return
+            }
+
+            do {
+                switch normalized.dmMode {
+                case .open:
+                    try Self.writeJSONStringConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.dmPolicy",
+                        value: "open",
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                    try Self.writeJSONConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.allowFrom",
+                        value: ["*"],
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                case .onlyMe:
+                    let owner = trimmedNonEmpty(normalized.ownerOpenID) ?? ""
+                    try Self.writeJSONStringConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.dmPolicy",
+                        value: "allowlist",
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                    try Self.writeJSONConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.allowFrom",
+                        value: [owner],
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                case .selected:
+                    try Self.writeJSONStringConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.dmPolicy",
+                        value: "allowlist",
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                    try Self.writeJSONConfig(
+                        openClawBinaryPath: openClawBinaryPath,
+                        environment: environment,
+                        runCommand: runCommand,
+                        path: "channels.feishu.allowFrom",
+                        value: normalized.dmUIDs,
+                        log: { line in await MainActor.run { self.appendLogLine(line) } }
+                    )
+                }
+
+                var groups = Self.readJSONObjectConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "channels.feishu.groups"
+                ) ?? [:]
+                var wildcard = groups["*"] as? [String: Any] ?? [:]
+                wildcard["enabled"] = true
+                switch normalized.groupMode {
+                case .open:
+                    wildcard.removeValue(forKey: "allowFrom")
+                case .onlyMe:
+                    let owner = trimmedNonEmpty(normalized.ownerOpenID) ?? ""
+                    wildcard["allowFrom"] = [owner]
+                case .selected:
+                    wildcard["allowFrom"] = normalized.groupUIDs
+                }
+                groups["*"] = wildcard
+
+                try Self.writeJSONStringConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "channels.feishu.groupPolicy",
+                    value: "open",
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
+                try Self.writeJSONConfig(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    path: "channels.feishu.groups",
+                    value: groups,
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
+
+                await MainActor.run {
+                    self.advancedPolicyBusy = false
+                    self.advancedPolicySnapshot = FeishuAdvancedPolicySnapshot(
+                        dmMode: normalized.dmMode,
+                        dmUIDs: normalized.dmUIDs,
+                        groupMode: normalized.groupMode,
+                        groupUIDs: normalized.groupUIDs,
+                        ownerOpenID: normalized.ownerOpenID
+                    )
+                    self.refreshStatus()
+                }
+            } catch {
+                await MainActor.run {
+                    self.advancedPolicyBusy = false
+                    self.advancedPolicyError = error.localizedDescription
+                }
+            }
+        }
     }
 
     func runDoctor() {
@@ -1868,6 +2128,84 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             merged.append(value)
         }
         return merged
+    }
+
+    private nonisolated static func normalizeAdvancedPolicyDraft(_ draft: FeishuAdvancedPolicyDraft) -> FeishuAdvancedPolicyDraft {
+        FeishuAdvancedPolicyDraft(
+            dmMode: draft.dmMode,
+            dmUIDs: normalizeUIDs(draft.dmUIDs),
+            groupMode: draft.groupMode,
+            groupUIDs: normalizeUIDs(draft.groupUIDs),
+            ownerOpenID: trimmedNonEmpty(draft.ownerOpenID)
+        )
+    }
+
+    private nonisolated static func normalizeUIDs(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for value in values {
+            guard let trimmed = trimmedNonEmpty(value), trimmed != "*" else { continue }
+            if seen.insert(trimmed).inserted {
+                result.append(trimmed)
+            }
+        }
+        return result
+    }
+
+    private nonisolated static func resolveAdvancedPolicySnapshot(
+        dmPolicy: String,
+        allowFrom: [String],
+        groupPolicy: String,
+        groupAllowFrom: [String],
+        ownerOpenID: String?
+    ) -> FeishuAdvancedPolicySnapshot {
+        let owner = trimmedNonEmpty(ownerOpenID)
+        let normalizedAllowFrom = normalizeUIDs(allowFrom)
+        let normalizedGroupAllowFrom = normalizeUIDs(groupAllowFrom)
+
+        let dmMode: FeishuPermissionMode
+        let dmUIDs: [String]
+        if dmPolicy == "open" || allowFrom.contains("*") {
+            dmMode = .open
+            dmUIDs = []
+        } else if let owner,
+                  normalizedAllowFrom.count == 1,
+                  normalizedAllowFrom.first == owner {
+            dmMode = .onlyMe
+            dmUIDs = [owner]
+        } else if normalizedAllowFrom.isEmpty {
+            dmMode = .open
+            dmUIDs = []
+        } else {
+            dmMode = .selected
+            dmUIDs = normalizedAllowFrom
+        }
+
+        let groupMode: FeishuPermissionMode
+        let groupUIDs: [String]
+        if groupPolicy == "disabled" {
+            groupMode = .selected
+            groupUIDs = []
+        } else if let owner,
+                  normalizedGroupAllowFrom.count == 1,
+                  normalizedGroupAllowFrom.first == owner {
+            groupMode = .onlyMe
+            groupUIDs = [owner]
+        } else if normalizedGroupAllowFrom.isEmpty {
+            groupMode = .open
+            groupUIDs = []
+        } else {
+            groupMode = .selected
+            groupUIDs = normalizedGroupAllowFrom
+        }
+
+        return FeishuAdvancedPolicySnapshot(
+            dmMode: dmMode,
+            dmUIDs: dmUIDs,
+            groupMode: groupMode,
+            groupUIDs: groupUIDs,
+            ownerOpenID: owner
+        )
     }
 
     private nonisolated static func jsonLiteral(_ value: Any) throws -> String {

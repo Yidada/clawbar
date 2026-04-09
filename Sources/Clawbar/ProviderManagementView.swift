@@ -83,7 +83,7 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         case .ollama:
             "连接本地或远端的 Ollama 服务。"
         case .custom:
-            "为自托管或代理网关生成完整的自定义 provider 配置。"
+            "连接自托管或代理模型服务。"
         }
     }
 
@@ -447,7 +447,7 @@ struct ProviderManagementView: View {
 
                     ProviderInputField(
                         title: "默认模型",
-                        helpText: "保存时会额外调用 `openclaw config set agents.defaults.model.primary ...` 保证当前模型生效。",
+                        helpText: "保存后会切换为当前默认模型。",
                         text: $manager.draftModel
                     )
 
@@ -623,18 +623,8 @@ struct ProviderManagementView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 8) {
-                oauthDetailRow(
-                    title: "OpenClaw 命令",
-                    value: "openclaw models auth login --provider openai-codex --set-default"
-                )
-                oauthDetailRow(
-                    title: "浏览器回调",
-                    value: "http://localhost:1455/auth/callback"
-                )
-                oauthDetailRow(
-                    title: "默认模型",
-                    value: "openai-codex/gpt-5.4"
-                )
+                suggestionRow("点击按钮后，Clawbar 会帮你打开登录流程。")
+                suggestionRow("完成浏览器授权后，状态会自动刷新。")
             }
             .padding(14)
             .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))

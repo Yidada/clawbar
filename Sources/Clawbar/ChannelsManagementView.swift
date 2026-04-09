@@ -47,9 +47,15 @@ struct ChannelsManagementView: View {
     @AppStorage("clawbar.debug.enabled") private var globalDebugEnabled = false
     @AppStorage("clawbar.channels.wechat.enabled") private var wechatEnabled = false
     @AppStorage("clawbar.channels.feishu.logsExpanded") private var feishuLogsExpanded = false
+    @AppStorage("clawbar.channels.feishu.advancedExpanded") private var feishuAdvancedExpanded = false
 
     @StateObject private var feishuManager = OpenClawFeishuChannelManager.shared
     @StateObject private var wechatManager = OpenClawChannelManager.shared
+    @State private var dmPolicyMode: FeishuPermissionMode = .open
+    @State private var groupPolicyMode: FeishuPermissionMode = .open
+    @State private var dmUIDsText = ""
+    @State private var groupUIDsText = ""
+    @State private var ownerOpenIDText = ""
     @Environment(\.colorScheme) private var colorScheme
 
     private var theme: ManagementTheme {
@@ -118,6 +124,18 @@ struct ChannelsManagementView: View {
         .task {
             wechatManager.refreshWeChatStatus()
             feishuManager.refreshStatus()
+        }
+        .onChange(of: feishuAdvancedExpanded) { _, expanded in
+            if expanded {
+                feishuManager.loadAdvancedPolicy()
+            }
+        }
+        .onReceive(feishuManager.$advancedPolicySnapshot) { snapshot in
+            dmPolicyMode = snapshot.dmMode
+            groupPolicyMode = snapshot.groupMode
+            dmUIDsText = snapshot.dmUIDs.joined(separator: ",")
+            groupUIDsText = snapshot.groupUIDs.joined(separator: ",")
+            ownerOpenIDText = snapshot.ownerOpenID ?? ""
         }
     }
 
@@ -269,6 +287,8 @@ struct ChannelsManagementView: View {
                 .tint(ChannelKind.feishu.accentColor)
                 .disabled(feishuSetupActionDisabled)
 
+                feishuAdvancedPolicyPanel
+
                 if shouldShowFeishuLogs {
                     DisclosureGroup("展开日志", isExpanded: $feishuLogsExpanded) {
                         ScrollView {
@@ -321,6 +341,93 @@ struct ChannelsManagementView: View {
 
     private var shouldShowFeishuLogs: Bool {
         ClawbarDebugOptions.shouldShowDebugUI(globalDebugEnabled: globalDebugEnabled)
+    }
+
+    private var feishuAdvancedPolicyPanel: some View {
+        DisclosureGroup("高级设置", isExpanded: $feishuAdvancedExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("权限")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.secondaryText)
+
+                HStack(spacing: 10) {
+                    Text("Owner Open ID")
+                        .font(.caption.weight(.medium))
+                        .frame(width: 110, alignment: .leading)
+                    TextField("ou_xxx", text: $ownerOpenIDText)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("DM Policy")
+                        .font(.subheadline.weight(.semibold))
+                    Picker("DM Policy", selection: $dmPolicyMode) {
+                        ForEach(FeishuPermissionMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if dmPolicyMode == .selected {
+                        TextField("输入 UID，逗号分隔", text: $dmUIDsText)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Group Policy")
+                        .font(.subheadline.weight(.semibold))
+                    Picker("Group Policy", selection: $groupPolicyMode) {
+                        ForEach(FeishuPermissionMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if groupPolicyMode == .selected {
+                        TextField("输入 UID，逗号分隔", text: $groupUIDsText)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                if let error = feishuManager.advancedPolicyError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack(spacing: 10) {
+                    Button("读取当前配置") {
+                        feishuManager.loadAdvancedPolicy()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(feishuManager.advancedPolicyBusy)
+
+                    Button("保存高级设置") {
+                        feishuManager.saveAdvancedPolicy(
+                            FeishuAdvancedPolicyDraft(
+                                dmMode: dmPolicyMode,
+                                dmUIDs: splitUIDText(dmUIDsText),
+                                groupMode: groupPolicyMode,
+                                groupUIDs: splitUIDText(groupUIDsText),
+                                ownerOpenID: trimmedNonEmpty(ownerOpenIDText)
+                            )
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(ChannelKind.feishu.accentColor)
+                    .disabled(feishuManager.advancedPolicyBusy)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .tint(theme.primaryText)
+    }
+
+    private func splitUIDText(_ text: String) -> [String] {
+        text.split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 
     private var wechatCard: some View {

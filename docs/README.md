@@ -23,6 +23,8 @@
   面向本地开发者的详细签名与 notarization 操作指引，包括证书准备、API key、脚本用法和常见故障排查。
 - `2026-04-07-main-branch-packaging-setup.md`
   说明哪些签名配置可以保存在项目内但必须被 Git 忽略，以及如何把同一套 secrets 安全接到 `main` 自动打包和 tag release workflow。
+- `2026-04-08-feishu-advanced-policy-settings-design.md`
+  飞书 Channel 高级设置（默认折叠）与 Group/DM 权限三档策略（仅自己/指定 UID/开放）的调研与设计方案。
 
 ## 文档约定
 

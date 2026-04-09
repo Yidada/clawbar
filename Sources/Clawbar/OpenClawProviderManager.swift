@@ -364,6 +364,24 @@ final class OpenClawProviderManager: ObservableObject {
         draftAPIKey = ""
     }
 
+    var activeProvider: ProviderKind? {
+        Self.providerKind(from: defaultModelRef)
+    }
+
+    var activeModelDisplay: String? {
+        guard let activeProvider else {
+            return defaultModelRef?.trimmedNonEmpty
+        }
+
+        let trimmedModel = Self.modelDraft(for: activeProvider, defaultModelRef: defaultModelRef).trimmedNonEmpty
+        return trimmedModel ?? defaultModelRef?.trimmedNonEmpty
+    }
+
+    var activeAuthState: OpenClawProviderAuthState? {
+        guard let activeProvider else { return nil }
+        return latestSnapshot?.authStates[activeProvider.rawValue]
+    }
+
     nonisolated static func makeSavePlan(
         provider: ProviderKind,
         customCompatibility: ProviderCustomCompatibility,
@@ -600,7 +618,7 @@ final class OpenClawProviderManager: ObservableObject {
         )
     }
 
-    private nonisolated static func modelDraft(
+    nonisolated static func modelDraft(
         for provider: ProviderKind,
         defaultModelRef: String?
     ) -> String {
@@ -614,7 +632,7 @@ final class OpenClawProviderManager: ObservableObject {
         return String(defaultModelRef.dropFirst(provider.rawValue.count + 1))
     }
 
-    private nonisolated static func providerKind(from defaultModelRef: String?) -> ProviderKind? {
+    nonisolated static func providerKind(from defaultModelRef: String?) -> ProviderKind? {
         guard let defaultModelRef else { return nil }
         return ProviderKind.allCases.first { defaultModelRef.hasPrefix("\($0.rawValue)/") }
     }

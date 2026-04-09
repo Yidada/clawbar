@@ -45,7 +45,6 @@ enum ChannelKind: String, CaseIterable, Identifiable {
 
 struct ChannelsManagementView: View {
     @AppStorage("clawbar.debug.enabled") private var globalDebugEnabled = false
-    @AppStorage("clawbar.channels.default") private var defaultChannelRawValue = ChannelKind.feishu.rawValue
     @AppStorage("clawbar.channels.wechat.enabled") private var wechatEnabled = false
     @AppStorage("clawbar.channels.feishu.logsExpanded") private var feishuLogsExpanded = false
 
@@ -55,11 +54,6 @@ struct ChannelsManagementView: View {
 
     private var theme: ManagementTheme {
         ManagementTheme(colorScheme: colorScheme)
-    }
-
-    private var defaultChannel: ChannelKind {
-        get { ChannelKind(rawValue: defaultChannelRawValue) ?? .feishu }
-        nonmutating set { defaultChannelRawValue = newValue.rawValue }
     }
 
     private var enabledCount: Int {
@@ -115,7 +109,6 @@ struct ChannelsManagementView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     headerSection
-                    overviewCard
                     channelsGrid
                 }
                 .padding(24)
@@ -157,67 +150,6 @@ struct ChannelsManagementView: View {
                     .stroke(Color.cyan.opacity(0.35), lineWidth: 1)
             )
         }
-    }
-
-    private var overviewCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("接入概览")
-                .font(.headline)
-
-            HStack(alignment: .top, spacing: 12) {
-                overviewMetric(title: "默认回传 Channel", value: defaultChannel.displayName)
-                overviewMetric(title: "已启用", value: "\(enabledCount) / \(ChannelKind.allCases.count)")
-                overviewMetric(title: "飞书状态", value: feishuManager.statusLabel)
-                overviewMetric(title: "微信状态", value: wechatManager.statusLabel)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("默认回传入口")
-                    .font(.headline)
-
-                Picker("默认回传 Channel", selection: Binding(
-                    get: { defaultChannel },
-                    set: { defaultChannel = $0 }
-                )) {
-                    ForEach(ChannelKind.allCases) { channel in
-                        Text(channel.displayName).tag(channel)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("调试显示")
-                    .font(.headline)
-
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("全局 Debug")
-                            .font(.subheadline.weight(.semibold))
-
-                        Text("开发环境默认展示调试日志；线上环境打开后也会展示。")
-                            .font(.caption)
-                            .foregroundStyle(theme.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer()
-
-                    Toggle("全局 Debug", isOn: $globalDebugEnabled)
-                        .labelsHidden()
-                }
-            }
-            .padding(14)
-            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .padding(20)
-        .background(theme.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(theme.cardBorder, lineWidth: 1)
-        )
-        .shadow(color: theme.shadowColor, radius: colorScheme == .dark ? 0 : 18, y: colorScheme == .dark ? 0 : 8)
     }
 
     private var channelsGrid: some View {
@@ -610,22 +542,6 @@ struct ChannelsManagementView: View {
 
     private var feishuStatusDetail: String {
         feishuManager.displayDetail
-    }
-
-    private func overviewMetric(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.secondaryText)
-
-            Text(value)
-                .font(.subheadline)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func channelShell<Content: View>(

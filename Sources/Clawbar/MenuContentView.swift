@@ -64,11 +64,13 @@ struct MenuContentView: View {
                         .foregroundStyle(theme.primaryText)
                         .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerTitle))
 
-                    Text(snapshot.subtitle)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerSubtitle))
+                    if let subtitle = snapshot.subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier(model.accessibilityIdentifier(for: .headerSubtitle))
+                    }
                 }
 
                 Spacer(minLength: 10)

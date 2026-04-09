@@ -84,7 +84,6 @@ VERIFY_ARGS=(
 if [[ "$VERIFY_STATE" == "installed" ]]; then
     VERIFY_ARGS+=(
         --expect "/opt/homebrew/bin/openclaw"
-        --expect "Provider 已配置 · Gateway 可达 · Channel 已就绪"
         --expect "OpenClaw 2026.4.2"
         --expect "启动 TUI"
         --expect "卸载 OpenClaw"

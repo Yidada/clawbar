@@ -21,7 +21,7 @@ struct MenuPanelRowSnapshot: Equatable, Identifiable {
 struct MenuPanelSnapshot: Equatable {
     let state: MenuPanelState
     let title: String
-    let subtitle: String
+    let subtitle: String?
     let metadata: String?
     let binaryPath: String?
     let rows: [MenuPanelRowSnapshot]
@@ -75,7 +75,7 @@ enum MenuPanelSnapshotFactory {
             return MenuPanelSnapshot(
                 state: .installed,
                 title: model.installedTitle,
-                subtitle: primaryInstalledSubtitle(detailText: detailText, fallback: statusText),
+                subtitle: nil,
                 metadata: installedMetadata(
                     statusExcerpt: statusExcerpt,
                     isRefreshingStatus: isRefreshingStatus,
@@ -129,10 +129,6 @@ enum MenuPanelSnapshotFactory {
             && trimmedNonEmpty(installedBinaryPath) == nil
             && trimmedNonEmpty(statusExcerpt) == nil
             && healthSnapshot == nil
-    }
-
-    private static func primaryInstalledSubtitle(detailText: String, fallback: String) -> String {
-        trimmedNonEmpty(detailText) ?? fallback
     }
 
     private static func installedMetadata(

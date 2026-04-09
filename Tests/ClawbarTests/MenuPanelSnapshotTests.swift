@@ -19,7 +19,7 @@ final class MenuPanelSnapshotTests: XCTestCase {
 
         XCTAssertEqual(snapshot.state, .installed)
         XCTAssertEqual(snapshot.title, "OpenClaw")
-        XCTAssertEqual(snapshot.subtitle, "Provider 已配置 · Gateway 可达 · Channel 已就绪")
+        XCTAssertNil(snapshot.subtitle)
         XCTAssertEqual(snapshot.metadata, "OpenClaw 2026.4.2")
         XCTAssertEqual(snapshot.binaryPath, "/opt/homebrew/bin/openclaw")
         XCTAssertEqual(snapshot.rows.count, 3)

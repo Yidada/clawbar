@@ -224,6 +224,22 @@ final class OpenClawChannelManager: ObservableObject {
         isInstalling || isLaunchingBinding
     }
 
+    var hasResolvedStatus: Bool {
+        lastRefreshDate != nil
+    }
+
+    var isEnabled: Bool {
+        if isFlowActive {
+            return true
+        }
+
+        guard let derivedState = cardState.stableDerivedState else {
+            return false
+        }
+
+        return Self.isEnabled(derivedState: derivedState)
+    }
+
     var shouldOfferInstall: Bool {
         guard openClawBinaryPath != nil else { return false }
         guard let derivedState = cardState.stableDerivedState else { return false }
@@ -550,6 +566,17 @@ final class OpenClawChannelManager: ObservableObject {
             return "微信可用"
         case .pluginConfiguredGatewayUnreachable:
             return "微信已配置"
+        }
+    }
+
+    private nonisolated static func isEnabled(derivedState: OpenClawWeixinDerivedState) -> Bool {
+        switch derivedState {
+        case .pluginMissing:
+            return false
+        case .pluginPresentButNotConfigured,
+             .pluginConfiguredGatewayReachable,
+             .pluginConfiguredGatewayUnreachable:
+            return true
         }
     }
 

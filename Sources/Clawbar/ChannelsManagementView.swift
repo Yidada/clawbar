@@ -57,14 +57,14 @@ struct ChannelsManagementView: View {
     }
 
     private var enabledCount: Int {
-        [feishuManager.snapshot.channelEnabled, wechatEnabled].filter { $0 }.count
+        [feishuManager.snapshot.channelEnabled, wechatManager.isEnabled].filter { $0 }.count
     }
 
     private var wechatToggleBinding: Binding<Bool> {
         Binding(
-            get: { wechatEnabled },
+            get: { wechatToggleVisualState },
             set: { newValue in
-                let previousValue = wechatEnabled
+                let previousValue = wechatToggleVisualState
                 wechatEnabled = newValue
 
                 guard previousValue != newValue else { return }
@@ -530,11 +530,23 @@ struct ChannelsManagementView: View {
     }
 
     private var shouldShowBindButton: Bool {
-        wechatEnabled && wechatManager.shouldOfferBind
+        wechatDesiredState && wechatManager.shouldOfferBind
     }
 
     private var shouldShowInstallButton: Bool {
-        wechatEnabled && wechatManager.shouldOfferInstall
+        wechatDesiredState && wechatManager.shouldOfferInstall
+    }
+
+    private var wechatDesiredState: Bool {
+        wechatEnabled || wechatManager.isEnabled || wechatManager.isFlowActive
+    }
+
+    private var wechatToggleVisualState: Bool {
+        if wechatManager.hasResolvedStatus {
+            return wechatManager.isEnabled
+        }
+
+        return wechatManager.isFlowActive ? wechatEnabled : false
     }
     private var feishuStatusHeadline: String {
         feishuManager.displaySummary

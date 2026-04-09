@@ -56,6 +56,7 @@ struct OpenClawGatewayStatusSnapshot: Equatable, Sendable {
     let detail: String
     let binaryPath: String?
     let runtimeStatus: String?
+    let serviceInstalled: Bool
     let serviceLoaded: Bool
     let serviceLabel: String?
     let pid: Int?
@@ -68,6 +69,7 @@ struct OpenClawGatewayStatusSnapshot: Equatable, Sendable {
         detail: "请先安装 OpenClaw，然后再管理 Gateway 服务。",
         binaryPath: nil,
         runtimeStatus: nil,
+        serviceInstalled: false,
         serviceLoaded: false,
         serviceLabel: nil,
         pid: nil,
@@ -179,6 +181,7 @@ final class OpenClawGatewayManager: ObservableObject {
                 detail: "gateway status 命令未在 8 秒内完成。",
                 binaryPath: displayPath,
                 runtimeStatus: nil,
+                serviceInstalled: false,
                 serviceLoaded: false,
                 serviceLabel: nil,
                 pid: nil,
@@ -196,6 +199,7 @@ final class OpenClawGatewayManager: ObservableObject {
                 detail: commandResult.output.nonEmptyOr("无法解析 gateway status 的返回结果。"),
                 binaryPath: displayPath,
                 runtimeStatus: nil,
+                serviceInstalled: false,
                 serviceLoaded: false,
                 serviceLabel: nil,
                 pid: nil,
@@ -211,6 +215,10 @@ final class OpenClawGatewayManager: ObservableObject {
         let missingUnit = runtime?["missingUnit"] as? Bool ?? false
         let serviceLabel = (service["label"] as? String)?.trimmedNonEmpty
         let notLoadedText = (service["notLoadedText"] as? String)?.trimmedNonEmpty
+        let serviceInstalled =
+            loaded ||
+            service["command"] as? [String: Any] != nil ||
+            (!missingUnit && (serviceLabel != nil || notLoadedText != nil))
 
         let state: GatewayRuntimeState
         let detail: String
@@ -228,12 +236,16 @@ final class OpenClawGatewayManager: ObservableObject {
         case (true, "scheduled"), (true, "starting"), (true, "stopping"):
             state = .transitioning
             detail = runtimeDetail ?? "Gateway 服务正在切换状态，请稍后刷新。"
-        case (false, _) where missingUnit:
+        case (false, _) where missingUnit && !serviceInstalled:
             state = .missing
             detail = runtimeDetail ?? "Gateway 服务尚未安装到 launchd。"
         case (false, _):
             state = .stopped
-            detail = notLoadedText ?? "Gateway 服务当前未加载；通常表示尚未启动，或已经被暂停。"
+            if missingUnit && serviceInstalled {
+                detail = "Gateway 服务已安装，但当前未加载；通常表示尚未启动，或已经被暂停。"
+            } else {
+                detail = runtimeDetail ?? notLoadedText ?? "Gateway 服务当前未加载；通常表示尚未启动，或已经被暂停。"
+            }
         default:
             state = .unknown
             detail = runtimeDetail ?? "Gateway 服务已加载，但当前运行状态无法识别。"
@@ -244,6 +256,7 @@ final class OpenClawGatewayManager: ObservableObject {
             detail: detail,
             binaryPath: displayPath,
             runtimeStatus: runtimeStatus,
+            serviceInstalled: serviceInstalled,
             serviceLoaded: loaded,
             serviceLabel: serviceLabel,
             pid: pid,
@@ -265,15 +278,17 @@ final class OpenClawGatewayManager: ObservableObject {
 
         if let payload = parseJSONObject(from: result.output) {
             let ok = payload["ok"] as? Bool ?? (result.exitStatus == 0)
+            let resultCode = (payload["result"] as? String)?.trimmedNonEmpty?.lowercased()
             let message = (payload["message"] as? String)?.trimmedNonEmpty
             let error = (payload["error"] as? String)?.trimmedNonEmpty
             let warnings = (payload["warnings"] as? [String])?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            let detail = (warnings?.isEmpty == false) ? warnings?.joined(separator: "\n") : nil
+            let detailParts = ([localizedGatewayActionMessage(message)] + (warnings ?? [])).compactMap { $0 }
+            let detail = detailParts.isEmpty ? nil : detailParts.joined(separator: "\n")
 
             if ok {
                 return OpenClawGatewayActionFeedback(
                     isSuccess: true,
-                    summary: message ?? "Gateway 已\(action.displayName)。",
+                    summary: successSummary(action: action, resultCode: resultCode),
                     detail: detail
                 )
             }
@@ -298,6 +313,30 @@ final class OpenClawGatewayManager: ObservableObject {
             summary: "Gateway \(action.displayName)失败",
             detail: result.output.trimmedNonEmpty ?? "命令返回了非零退出码 \(result.exitStatus)。"
         )
+    }
+
+    private nonisolated static func successSummary(
+        action: GatewayControlAction,
+        resultCode: String?
+    ) -> String {
+        switch (action, resultCode) {
+        case (.start, "scheduled"):
+            "Gateway 启动已调度。"
+        case (.restart, "scheduled"):
+            "Gateway 重启已调度。"
+        case (.restart, "not-loaded"):
+            "Gateway 未运行。"
+        case (.pause, "not-loaded"), (.pause, "stopped"):
+            "Gateway 已暂停。"
+        case (.start, "not-loaded"):
+            "Gateway 未启动。"
+        case (.start, _):
+            "Gateway 已启动。"
+        case (.restart, _):
+            "Gateway 已重启。"
+        case (.pause, _):
+            "Gateway 已暂停。"
+        }
     }
 
     private nonisolated static func runCommand(
@@ -360,6 +399,30 @@ private func sanitizeGatewayCommandOutput(_ data: Data) -> String {
 
     let range = NSRange(raw.startIndex..<raw.endIndex, in: raw)
     return regex.stringByReplacingMatches(in: raw, options: [], range: range, withTemplate: "")
+}
+
+private func localizedGatewayActionMessage(_ message: String?) -> String? {
+    guard let message else { return nil }
+
+    let normalized = message.lowercased()
+    if normalized.contains("installed but not loaded"),
+       normalized.contains("bootstrap") {
+        return "Gateway LaunchAgent 已安装但未加载，已自动重新注册并拉起服务。"
+    }
+    if normalized.contains("scheduled for start") {
+        return "已提交启动请求，Gateway 会很快进入运行状态。"
+    }
+    if normalized.contains("restart scheduled") {
+        return "已提交重启请求，Gateway 会短暂重启。"
+    }
+    if normalized.contains("service restarted") {
+        return "Gateway 服务已重启。"
+    }
+    if normalized.contains("service not loaded") {
+        return "Gateway 服务当前未加载。"
+    }
+
+    return message
 }
 
 private extension String {

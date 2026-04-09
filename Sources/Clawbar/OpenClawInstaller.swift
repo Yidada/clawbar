@@ -148,7 +148,7 @@ struct OpenClawGatewayPreparationResult: Equatable, Sendable {
     let failureDetail: String?
 
     var isReady: Bool {
-        failureDetail == nil && !(statusSnapshot?.missingUnit ?? true)
+        failureDetail == nil && (statusSnapshot?.serviceInstalled ?? false)
     }
 }
 
@@ -666,7 +666,7 @@ final class OpenClawInstaller: ObservableObject {
         let statusLabel: String
         let level: OpenClawHealthLevel
 
-        if gatewaySnapshot.missingUnit || gatewaySnapshot.state == .missing {
+        if !gatewaySnapshot.serviceInstalled || gatewaySnapshot.state == .missing {
             statusLabel = "未安装"
             level = .critical
         } else if reachable == true {
@@ -875,7 +875,7 @@ final class OpenClawInstaller: ObservableObject {
         }
 
         let gatewayStatusSnapshot = fetchGatewayStatus(binaryPath, environment)
-        if gatewayStatusSnapshot.missingUnit {
+        if !gatewayStatusSnapshot.serviceInstalled {
             return OpenClawGatewayPreparationResult(
                 token: token,
                 statusSnapshot: gatewayStatusSnapshot,

@@ -128,6 +128,16 @@ final class OpenClawChannelManagerTests: XCTestCase {
         )
     }
 
+    func testIsEnabledReturnsFalseBeforeAnyStatusResolves() {
+        let manager = OpenClawChannelManager(
+            environmentProvider: { [:] },
+            runCommand: makeCommandRunner([:])
+        )
+
+        XCTAssertFalse(manager.hasResolvedStatus)
+        XCTAssertFalse(manager.isEnabled)
+    }
+
     func testRefreshWeChatStatusKeepsLastKnownStateWhileRefreshing() async {
         let statusOutput = """
         {
@@ -197,6 +207,58 @@ final class OpenClawChannelManagerTests: XCTestCase {
         )
 
         await waitUntilRefreshFinishes(for: manager)
+    }
+
+    func testRefreshWeChatStatusMarksConfiguredPluginAsEnabled() async {
+        let manager = OpenClawChannelManager(
+            environmentProvider: { [:] },
+            runCommand: makeCommandRunner([
+                MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): .init(
+                    output: "/opt/homebrew/bin/openclaw\n",
+                    exitStatus: 0,
+                    timedOut: false
+                ),
+                MockCommand("/opt/homebrew/bin/openclaw", ["status", "--json"]): .init(
+                    output: """
+                    {
+                      "gateway": {
+                        "reachable": true,
+                        "error": null,
+                        "url": "ws://127.0.0.1:18789"
+                      },
+                      "gatewayService": {
+                        "installed": true,
+                        "loaded": true,
+                        "runtimeShort": "running"
+                      }
+                    }
+                    """,
+                    exitStatus: 0,
+                    timedOut: false
+                ),
+                MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): .init(
+                    output: weixinChannelsStatusOutput,
+                    exitStatus: 0,
+                    timedOut: false
+                ),
+                MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): .init(
+                    output: weixinChannelsListOutput,
+                    exitStatus: 0,
+                    timedOut: false
+                ),
+                MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-weixin", "--json"]): .init(
+                    output: weixinPluginInspectOutput,
+                    exitStatus: 0,
+                    timedOut: false
+                ),
+            ])
+        )
+
+        manager.refreshWeChatStatus()
+        await waitUntilRefreshFinishes(for: manager)
+
+        XCTAssertTrue(manager.hasResolvedStatus)
+        XCTAssertTrue(manager.isEnabled)
     }
 
     func testParseRuntimeSnapshotExtractsQRCodeAndProgressSignals() {

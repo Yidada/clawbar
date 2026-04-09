@@ -152,11 +152,39 @@ final class OpenClawProviderManagerTests: XCTestCase {
     }
 
     func testMakeSavePlanUsesOllamaOnboardAndSuggestedBaseURL() throws {
+        XCTAssertThrowsError(
+            try OpenClawProviderManager.makeSavePlan(
+                provider: .ollama,
+                customCompatibility: .openAI,
+                baseURL: "",
+                model: "",
+                apiKey: ""
+            )
+        ) { error in
+            XCTAssertEqual(error as? OpenClawProviderSavePlanError, .missingModel)
+        }
+    }
+
+    func testMakeSavePlanRejectsOllamaProviderWithoutBaseURL() {
+        XCTAssertThrowsError(
+            try OpenClawProviderManager.makeSavePlan(
+                provider: .ollama,
+                customCompatibility: .openAI,
+                baseURL: "",
+                model: "glm-4.7-flash",
+                apiKey: ""
+            )
+        ) { error in
+            XCTAssertEqual(error as? OpenClawProviderSavePlanError, .missingOllamaBaseURL)
+        }
+    }
+
+    func testMakeSavePlanUsesExplicitOllamaValues() throws {
         let plan = try OpenClawProviderManager.makeSavePlan(
             provider: .ollama,
             customCompatibility: .openAI,
-            baseURL: "",
-            model: "",
+            baseURL: "http://127.0.0.1:11434",
+            model: "glm-4.7-flash",
             apiKey: ""
         )
 

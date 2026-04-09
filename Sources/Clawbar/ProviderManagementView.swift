@@ -87,44 +87,6 @@ enum ProviderKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var suggestedBaseURL: String {
-        switch self {
-        case .openAI:
-            "https://api.openai.com/v1"
-        case .openAICodex:
-            ""
-        case .anthropic:
-            "https://api.anthropic.com"
-        case .openRouter:
-            "https://openrouter.ai/api/v1"
-        case .liteLLM:
-            "http://localhost:4000"
-        case .ollama:
-            "http://127.0.0.1:11434"
-        case .custom:
-            ""
-        }
-    }
-
-    var suggestedModel: String {
-        switch self {
-        case .openAI:
-            "gpt-5.4"
-        case .openAICodex:
-            "gpt-5.4"
-        case .anthropic:
-            "claude-opus-4-6"
-        case .openRouter:
-            "anthropic/claude-sonnet-4-6"
-        case .liteLLM:
-            "claude-opus-4-6"
-        case .ollama:
-            "glm-4.7-flash"
-        case .custom:
-            ""
-        }
-    }
-
     var apiKeyHelpText: String {
         switch self {
         case .openAICodex:
@@ -357,15 +319,13 @@ struct ProviderManagementView: View {
                     ProviderInputField(
                         title: "Base URL",
                         helpText: baseURLHelpText,
-                        text: $manager.draftBaseURL,
-                        prompt: manager.selectedProvider.suggestedBaseURL
+                        text: $manager.draftBaseURL
                     )
 
                     ProviderInputField(
                         title: "默认模型",
                         helpText: "保存时会额外调用 `openclaw config set agents.defaults.model.primary ...` 保证当前模型生效。",
-                        text: $manager.draftModel,
-                        prompt: manager.selectedProvider.suggestedModel
+                        text: $manager.draftModel
                     )
 
                     ProviderSecureField(
@@ -385,12 +345,6 @@ struct ProviderManagementView: View {
                     .tint(manager.selectedProvider.accentColor)
                     .disabled(isBusy || manager.binaryPath == nil)
                 } else {
-                    Button("填入建议值") {
-                        manager.applySuggestedValues()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(manager.selectedProvider.accentColor)
-
                     Button(primaryActionTitle) {
                         manager.saveCurrentProvider()
                     }
@@ -503,7 +457,7 @@ struct ProviderManagementView: View {
                 )
                 oauthDetailRow(
                     title: "默认模型",
-                    value: "openai-codex/\(manager.selectedProvider.suggestedModel)"
+                    value: "openai-codex/gpt-5.4"
                 )
             }
             .padding(14)
@@ -577,7 +531,6 @@ private struct ProviderInputField: View {
     let title: String
     let helpText: String
     @Binding var text: String
-    let prompt: String
 
     private var theme: ManagementTheme {
         ManagementTheme(colorScheme: colorScheme)
@@ -592,7 +545,7 @@ private struct ProviderInputField: View {
                 .font(.caption)
                 .foregroundStyle(theme.secondaryText)
 
-            TextField("", text: $text, prompt: Text(prompt))
+            TextField("", text: $text)
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)

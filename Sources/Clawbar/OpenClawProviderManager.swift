@@ -56,6 +56,7 @@ struct OpenClawProviderSnapshot: Equatable, Sendable {
 enum OpenClawProviderSavePlanError: LocalizedError, Equatable {
     case missingBinary
     case missingCustomBaseURL
+    case missingOllamaBaseURL
     case missingModel
     case interactiveLoginRequired
 
@@ -65,8 +66,10 @@ enum OpenClawProviderSavePlanError: LocalizedError, Equatable {
             "未检测到 openclaw，请先安装。"
         case .missingCustomBaseURL:
             "Custom Provider 需要填写 Base URL。"
+        case .missingOllamaBaseURL:
+            "Ollama Provider 需要填写 Base URL。"
         case .missingModel:
-            "请填写模型 ID，或选择带建议模型的 Provider。"
+            "请填写模型 ID。"
         case .interactiveLoginRequired:
             "OpenAI Codex 需要通过 ChatGPT OAuth 登录，请使用登录按钮完成授权。"
         }
@@ -195,7 +198,7 @@ final class OpenClawProviderManager: ObservableObject {
                     self.lastActionDetail = "请先安装 openclaw，然后再管理 Provider。"
                     self.lastCommandOutput = ""
                     self.draftBaseURL = ""
-                    self.draftModel = targetProvider.suggestedModel
+                    self.draftModel = ""
                     self.draftAPIKey = ""
                     return
                 }
@@ -355,16 +358,6 @@ final class OpenClawProviderManager: ObservableObject {
         interactiveLoginPollingTask = nil
     }
 
-    func applySuggestedValues() {
-        if draftBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            draftBaseURL = selectedProvider.suggestedBaseURL
-        }
-
-        if draftModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            draftModel = selectedProvider.suggestedModel
-        }
-    }
-
     func clearDrafts() {
         draftBaseURL = ""
         draftModel = ""
@@ -379,7 +372,7 @@ final class OpenClawProviderManager: ObservableObject {
         apiKey: String
     ) throws -> [OpenClawProviderCLIInvocation] {
         let trimmedBaseURL = baseURL.trimmedNonEmpty
-        let trimmedModel = model.trimmedNonEmpty ?? provider.suggestedModel.trimmedNonEmpty
+        let trimmedModel = model.trimmedNonEmpty
         let trimmedAPIKey = apiKey.trimmedNonEmpty
 
         guard let resolvedModel = trimmedModel else {
@@ -508,10 +501,13 @@ final class OpenClawProviderManager: ObservableObject {
                 )
             }
         case .ollama:
+            guard let trimmedBaseURL else {
+                throw OpenClawProviderSavePlanError.missingOllamaBaseURL
+            }
             invocations.append(
                 ollamaInvocation(
                     baseFlags: baseFlags,
-                    baseURL: trimmedBaseURL ?? provider.suggestedBaseURL,
+                    baseURL: trimmedBaseURL,
                     modelID: resolvedModel,
                     apiKey: trimmedAPIKey
                 )
@@ -612,7 +608,7 @@ final class OpenClawProviderManager: ObservableObject {
             let defaultModelRef,
             defaultModelRef.hasPrefix("\(provider.rawValue)/")
         else {
-            return provider.suggestedModel
+            return ""
         }
 
         return String(defaultModelRef.dropFirst(provider.rawValue.count + 1))

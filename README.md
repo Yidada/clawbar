@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Clawbar is a macOS 14+ menu bar app for installing, configuring, and operating a local OpenClaw setup. It keeps the operational entry points in one place: install or remove OpenClaw, manage Gateway, Providers, and Channels, inspect current status, and launch the OpenClaw TUI from the menu bar.
+Clawbar is a macOS 14+ menu bar app for installing, configuring, and operating a local OpenClaw setup. It keeps the operational entry points in one place: install or remove OpenClaw, manage Gateway and Channels, prepare the bundled Ollama CLI runtime, pin OpenClaw to `ollama/gemma4`, inspect current status, and launch the OpenClaw TUI from the menu bar.
 
 ## Install
 
@@ -31,7 +31,7 @@ swift run Clawbar
 
 - OpenClaw install and uninstall, with execution logs and status feedback in a dedicated window
 - Local Gateway token preparation and Gateway background service management
-- Provider configuration, default model selection, and authentication state management through the `openclaw` CLI
+- Bundled Ollama CLI/runtime bootstrap, automatic `gemma4` download, and fixed OpenClaw binding to `ollama/gemma4`
 - Channel management for Feishu registration and WeChat onboarding flows
 - Menu bar status summaries for installation state, executable path, and recent operational status
 
@@ -75,11 +75,13 @@ Top-level `Scripts/dev.sh`, `Scripts/check_coverage.sh`, `Scripts/smoke_test.sh`
 
 ## Packaging and Release
 
-For unsigned local packaging, use `Scripts/package_app.sh`. The default output is a zip; set `OUTPUT_FORMAT=app`, `dmg`, or `both` when you need a different artifact shape.
+For unsigned local packaging, use `Scripts/package_app.sh`. The default output is a zip; set `OUTPUT_FORMAT=app`, `dmg`, or `both` when you need a different artifact shape. Packaging now downloads the pinned Ollama release asset, embeds the CLI/runtime under `Contents/Resources/OllamaRuntime/`, and records the bundled Ollama version in `build-info.txt`.
 
 ```bash
 OUTPUT_FORMAT=dmg ./Scripts/package_app.sh
 ```
+
+On first launch, Clawbar starts the bundled Ollama runtime, downloads `gemma4` into `~/Library/Application Support/Clawbar/Ollama/models`, and restores OpenClaw to `ollama/gemma4`. If the bundled runtime is unavailable, the Ollama page now exposes an in-app install entry that downloads the official CLI/runtime into `~/Library/Application Support/Clawbar/Ollama/runtime`. This version does not expose other provider choices, remote Ollama endpoints, or custom model selection.
 
 For local signing and notarization validation, set `SIGNING_IDENTITY` and the required notary environment variables, then run:
 

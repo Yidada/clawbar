@@ -178,12 +178,12 @@ final class OpenClawInstallerTests: XCTestCase {
         let providerSnapshot = OpenClawProviderSnapshot(
             binaryPath: "/opt/homebrew/bin/openclaw",
             configPath: "/Users/test/.openclaw/openclaw.json",
-            defaultModelRef: "openrouter/anthropic/claude-sonnet-4-6",
+            defaultModelRef: "ollama/gemma4",
             authStates: [
-                "openrouter": OpenClawProviderAuthState(
+                "ollama": OpenClawProviderAuthState(
                     kind: "env",
-                    detail: "OPENROUTER_API_KEY",
-                    source: "env: OPENROUTER_API_KEY"
+                    detail: "OLLAMA_API_KEY",
+                    source: "env: OLLAMA_API_KEY"
                 )
             ]
         )
@@ -243,7 +243,7 @@ final class OpenClawInstallerTests: XCTestCase {
         XCTAssertEqual(snapshot.excerpt, "OpenClaw 2026.4.5")
         XCTAssertEqual(snapshot.healthSnapshot.overallLevel, .healthy)
         XCTAssertEqual(snapshot.healthSnapshot.dimensions.map(\.dimension), [.provider, .gateway, .channel])
-        XCTAssertEqual(snapshot.healthSnapshot.dimensions[0].summary, "OpenRouter / anthropic/claude-sonnet-4-6")
+        XCTAssertEqual(snapshot.healthSnapshot.dimensions[0].summary, "Ollama / gemma4")
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[1].statusLabel, "可达")
         XCTAssertEqual(snapshot.healthSnapshot.dimensions[2].summary, "WeChat / 已就绪")
     }

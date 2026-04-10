@@ -9,6 +9,7 @@ APP_ROOT="$DIST_DIR/$APP_NAME"
 FRAMEWORKS_DIR="$APP_ROOT/Contents/Frameworks"
 MACOS_DIR="$APP_ROOT/Contents/MacOS"
 RESOURCES_DIR="$APP_ROOT/Contents/Resources"
+OLLAMA_RUNTIME_DIR="$RESOURCES_DIR/OllamaRuntime"
 INFO_PLIST_TEMPLATE="${INFO_PLIST_TEMPLATE:-$ROOT_DIR/Resources/Release/Clawbar-Info.plist}"
 BUILD_CONFIG="${BUILD_CONFIG:-release}"
 BUNDLE_ID="${BUNDLE_ID:-com.yidada.clawbar}"
@@ -20,6 +21,9 @@ DMG_BASENAME="${DMG_BASENAME:-${PRODUCT_NAME}-${APP_VERSION}}"
 ZIP_PATH="$DIST_DIR/${ZIP_BASENAME}.zip"
 DMG_PATH="$DIST_DIR/${DMG_BASENAME}.dmg"
 OUTPUT_FORMAT="${OUTPUT_FORMAT:-zip}"
+OLLAMA_VERSION="${OLLAMA_VERSION:-v0.20.5}"
+OLLAMA_ASSET_NAME="${OLLAMA_ASSET_NAME:-ollama-darwin.tgz}"
+OLLAMA_DOWNLOAD_URL="${OLLAMA_DOWNLOAD_URL:-https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/${OLLAMA_ASSET_NAME}}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 SIGNING_KEYCHAIN="${SIGNING_KEYCHAIN:-}"
 SIGN_WITH_TIMESTAMP="${SIGN_WITH_TIMESTAMP:-0}"
@@ -128,6 +132,23 @@ create_dmg() {
   echo "Created DMG artifact: $DMG_PATH"
 }
 
+embed_ollama_runtime() {
+  local runtime_tmp archive_path
+  runtime_tmp="$(mktemp -d "$DIST_DIR/ollama-runtime.XXXXXX")"
+  archive_path="$runtime_tmp/$OLLAMA_ASSET_NAME"
+
+  echo "==> Downloading Ollama runtime [$OLLAMA_VERSION]"
+  curl -fsSL "$OLLAMA_DOWNLOAD_URL" -o "$archive_path"
+
+  echo "==> Embedding Ollama runtime"
+  rm -rf "$OLLAMA_RUNTIME_DIR"
+  mkdir -p "$OLLAMA_RUNTIME_DIR"
+  tar -xzf "$archive_path" -C "$OLLAMA_RUNTIME_DIR"
+  chmod +x "$OLLAMA_RUNTIME_DIR/ollama"
+
+  rm -rf "$runtime_tmp"
+}
+
 verify_output_format
 
 mkdir -p "$DIST_DIR"
@@ -175,6 +196,8 @@ echo "==> Embedding Swift runtime libraries"
   --scan-executable "$MACOS_DIR/$PRODUCT_NAME" \
   --destination "$FRAMEWORKS_DIR"
 
+embed_ollama_runtime
+
 echo "==> Writing build metadata"
 cat > "$RESOURCES_DIR/build-info.txt" <<EOF
 name=$PRODUCT_NAME
@@ -182,6 +205,7 @@ version=$APP_VERSION
 build=$APP_BUILD
 commit=$GIT_COMMIT
 architectures=${BUILD_ARCH_ARRAY[*]}
+ollama_version=$OLLAMA_VERSION
 EOF
 
 if [[ -n "$SIGNING_IDENTITY" ]]; then
@@ -189,6 +213,11 @@ if [[ -n "$SIGNING_IDENTITY" ]]; then
   while IFS= read -r -d '' path; do
     sign_runtime_item "$path"
   done < <(find "$FRAMEWORKS_DIR" -type f -name '*.dylib' -print0)
+
+  echo "==> Signing embedded Ollama runtime"
+  while IFS= read -r -d '' path; do
+    sign_runtime_item "$path"
+  done < <(find "$OLLAMA_RUNTIME_DIR" -type f \( -name 'ollama' -o -name '*.dylib' -o -name '*.so' \) -print0)
 
   echo "==> Signing app bundle"
   sign_runtime_item "$MACOS_DIR/$PRODUCT_NAME"

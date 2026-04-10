@@ -1,234 +1,8 @@
 import SwiftUI
 
-enum ProviderKind: String, CaseIterable, Identifiable {
-    case openAI = "openai"
-    case openAICodex = "openai-codex"
-    case anthropic = "anthropic"
-    case openRouter = "openrouter"
-    case liteLLM = "litellm"
-    case ollama = "ollama"
-    case custom = "custom"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .openAI:
-            "OpenAI"
-        case .openAICodex:
-            "OpenAI Codex"
-        case .anthropic:
-            "Anthropic"
-        case .openRouter:
-            "OpenRouter"
-        case .liteLLM:
-            "LiteLLM"
-        case .ollama:
-            "Ollama"
-        case .custom:
-            "Custom"
-        }
-    }
-
-    var systemImageName: String {
-        switch self {
-        case .openAI:
-            "sparkles"
-        case .openAICodex:
-            "person.crop.circle.badge.checkmark"
-        case .anthropic:
-            "text.bubble"
-        case .openRouter:
-            "network"
-        case .liteLLM:
-            "bolt.horizontal"
-        case .ollama:
-            "shippingbox.fill"
-        case .custom:
-            "slider.horizontal.3"
-        }
-    }
-
-    var accentColor: Color {
-        switch self {
-        case .openAI:
-            Color(red: 0.12, green: 0.62, blue: 0.49)
-        case .openAICodex:
-            Color(red: 0.07, green: 0.56, blue: 0.62)
-        case .anthropic:
-            Color(red: 0.76, green: 0.55, blue: 0.30)
-        case .openRouter:
-            Color(red: 0.31, green: 0.56, blue: 0.98)
-        case .liteLLM:
-            Color(red: 0.52, green: 0.46, blue: 0.94)
-        case .ollama:
-            Color(red: 0.26, green: 0.63, blue: 0.56)
-        case .custom:
-            Color(red: 0.56, green: 0.56, blue: 0.60)
-        }
-    }
-
-    var shortDescription: String {
-        switch self {
-        case .openAI:
-            "使用 OpenAI 官方 API。"
-        case .openAICodex:
-            "通过 ChatGPT 登录使用 OpenAI Codex。"
-        case .anthropic:
-            "使用 Anthropic 官方 API。"
-        case .openRouter:
-            "通过 OpenRouter 使用多家模型。"
-        case .liteLLM:
-            "通过 LiteLLM 代理统一接入模型。"
-        case .ollama:
-            "连接本地或远端的 Ollama 服务。"
-        case .custom:
-            "连接自托管或代理模型服务。"
-        }
-    }
-
-    var apiKeyHelpText: String {
-        switch self {
-        case .openAICodex:
-            "OpenAI Codex 通过 ChatGPT 登录，无需手动填写 API Key。"
-        case .ollama:
-            "本地 Ollama 通常不需要 API Key；只有服务要求鉴权时再填写。"
-        case .custom:
-            "如果你的服务需要鉴权，再填写 API Key。"
-        default:
-            "如需使用官方 API，请填写对应 API Key。"
-        }
-    }
-
-    var usesInteractiveOAuthFlow: Bool {
-        self == .openAICodex
-    }
-}
-
-enum ProviderStatusTone: Equatable {
-    case accent
-    case warning
-    case neutral
-}
-
-struct ProviderCurrentStatusContent: Equatable {
-    let title: String
-    let detail: String
-    let connectionLabel: String
-    let nextStep: String
-    let iconName: String
-    let tone: ProviderStatusTone
-}
-
-enum ProviderCurrentStatusPresenter {
-    static func make(
-        currentProvider: ProviderKind?,
-        currentModel: String?,
-        currentAuthState: OpenClawProviderAuthState?,
-        selectedProvider: ProviderKind,
-        isInteractiveLoginInProgress: Bool,
-        hasPendingCredentialInput: Bool
-    ) -> ProviderCurrentStatusContent {
-        if isInteractiveLoginInProgress {
-            return ProviderCurrentStatusContent(
-                title: "正在连接 OpenAI Codex",
-                detail: "等待你在浏览器完成 ChatGPT 登录。",
-                connectionLabel: "登录中",
-                nextStep: "如果浏览器没有自动打开，请回到 Terminal 按提示继续。",
-                iconName: "arrow.triangle.2.circlepath",
-                tone: .accent
-            )
-        }
-
-        guard let currentProvider else {
-            let nextStep = selectedProvider.usesInteractiveOAuthFlow
-                ? "点击“使用 ChatGPT 登录”完成初始化。"
-                : "先填写必要信息，再保存到 OpenClaw。"
-            return ProviderCurrentStatusContent(
-                title: "尚未设置默认 Provider",
-                detail: "先在下方完成一次配置，之后这里会显示当前生效状态。",
-                connectionLabel: "未设置",
-                nextStep: nextStep,
-                iconName: "slider.horizontal.3",
-                tone: .warning
-            )
-        }
-
-        let hasCurrentAuth = currentAuthState?.isConfigured == true
-        let currentModelLabel = currentModel?.trimmedNonEmpty
-
-        if hasCurrentAuth {
-            let detail = currentModelLabel.map { "当前默认模型是 \($0)。" } ?? "\(currentProvider.displayName) 当前已经可以使用。"
-            return ProviderCurrentStatusContent(
-                title: "\(currentProvider.displayName) 已连接",
-                detail: detail,
-                connectionLabel: "已连接",
-                nextStep: nextStep(
-                    currentProvider: currentProvider,
-                    selectedProvider: selectedProvider,
-                    hasPendingCredentialInput: hasPendingCredentialInput,
-                    fallback: "如需切换 Provider 或模型，在下方修改后保存。"
-                ),
-                iconName: currentProvider.systemImageName,
-                tone: .accent
-            )
-        }
-
-        if currentProvider.usesInteractiveOAuthFlow {
-            return ProviderCurrentStatusContent(
-                title: "\(currentProvider.displayName) 尚未登录",
-                detail: "通过 ChatGPT 登录后即可开始使用。",
-                connectionLabel: "未登录",
-                nextStep: nextStep(
-                    currentProvider: currentProvider,
-                    selectedProvider: selectedProvider,
-                    hasPendingCredentialInput: hasPendingCredentialInput,
-                    fallback: "点击“使用 ChatGPT 登录”完成授权。"
-                ),
-                iconName: "person.crop.circle.badge.exclamationmark",
-                tone: .warning
-            )
-        }
-
-        return ProviderCurrentStatusContent(
-            title: "\(currentProvider.displayName) 待完成配置",
-            detail: "当前还缺少可用认证或模型配置。",
-            connectionLabel: "待配置",
-            nextStep: nextStep(
-                currentProvider: currentProvider,
-                selectedProvider: selectedProvider,
-                hasPendingCredentialInput: hasPendingCredentialInput,
-                fallback: "在下方填写必要信息后点击“保存到 OpenClaw”。"
-            ),
-            iconName: "key.fill",
-            tone: .warning
-        )
-    }
-
-    private static func nextStep(
-        currentProvider: ProviderKind,
-        selectedProvider: ProviderKind,
-        hasPendingCredentialInput: Bool,
-        fallback: String
-    ) -> String {
-        if hasPendingCredentialInput && !selectedProvider.usesInteractiveOAuthFlow {
-            return "检测到新的 API Key 输入，点击“保存到 OpenClaw”后生效。"
-        }
-
-        guard currentProvider != selectedProvider else {
-            return fallback
-        }
-
-        if selectedProvider.usesInteractiveOAuthFlow {
-            return "你正在配置 \(selectedProvider.displayName)。完成登录后会切换默认 Provider。"
-        }
-
-        return "你正在配置 \(selectedProvider.displayName)。填写后保存会切换默认 Provider。"
-    }
-}
-
 struct ProviderManagementView: View {
-    @StateObject private var manager = OpenClawProviderManager.shared
+    @StateObject private var providerManager = OpenClawProviderManager.shared
+    @StateObject private var ollamaManager = EmbeddedOllamaManager.shared
     @State private var isAdvancedInfoExpanded = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -236,23 +10,8 @@ struct ProviderManagementView: View {
         ManagementTheme(colorScheme: colorScheme)
     }
 
-    private var hasDraftAPIKey: Bool {
-        manager.draftAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
-
     private var isBusy: Bool {
-        manager.isSaving || manager.isInteractiveLoginInProgress
-    }
-
-    private var currentStatusContent: ProviderCurrentStatusContent {
-        ProviderCurrentStatusPresenter.make(
-            currentProvider: manager.activeProvider,
-            currentModel: manager.activeModelDisplay,
-            currentAuthState: manager.activeAuthState,
-            selectedProvider: manager.selectedProvider,
-            isInteractiveLoginInProgress: manager.isInteractiveLoginInProgress,
-            hasPendingCredentialInput: hasDraftAPIKey
-        )
+        providerManager.isSaving || ollamaManager.isPreparing
     }
 
     var body: some View {
@@ -267,28 +26,29 @@ struct ProviderManagementView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     headerSection
-                    currentStatusCard
-                    configurationCard
+                    runtimeCard
+                    modelCard
+                    bindingCard
+                    activityCard
                 }
                 .padding(24)
             }
         }
         .frame(minWidth: 760, minHeight: 680)
         .task {
-            manager.refreshStatus(syncSelectionWithDefault: true)
-        }
-        .onChange(of: manager.selectedProvider) { _, _ in
-            manager.refreshSelectedProvider()
+            ollamaManager.refreshStatus()
+            providerManager.refreshStatus()
+            providerManager.bootstrapIfPossible(reason: "provider.view")
         }
     }
 
     private var headerSection: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Provider 管理")
+                Text("Ollama / Gemma 4")
                     .font(.system(size: 30, weight: .semibold))
 
-                Text("先看当前生效状态，再在下方切换 Provider 和更新配置。")
+                Text("Clawbar 会优先使用内置 Ollama runtime；缺失时可下载安装，并把 OpenClaw 固定到 ollama/gemma4。")
                     .font(.subheadline)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -296,39 +56,86 @@ struct ProviderManagementView: View {
 
             Spacer()
 
-            providerBadge
+            HStack(spacing: 8) {
+                Image(systemName: "cpu.fill")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text("Gemma 4")
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(Color(red: 0.26, green: 0.63, blue: 0.56))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(red: 0.26, green: 0.63, blue: 0.56).opacity(0.15), in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color(red: 0.26, green: 0.63, blue: 0.56).opacity(0.35), lineWidth: 1)
+            )
         }
     }
 
-    private var currentStatusCard: some View {
+    private var runtimeCard: some View {
+        statusCard(
+            title: "Ollama CLI / Runtime",
+            statusLabel: ollamaManager.runtimeState.statusLabel,
+            detail: ollamaManager.runtimeSummary,
+            iconName: runtimeIconName,
+            tint: runtimeTint
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                statusMetric(title: "运行状态", value: ollamaManager.runtimeState.title)
+                statusMetric(title: "CLI 路径", value: ollamaManager.cliPath ?? "未检测到")
+                statusMetric(title: "安装目录", value: ollamaManager.managedRuntimePath)
+                statusMetric(title: "服务地址", value: EmbeddedOllamaManager.defaultBaseURL.absoluteString)
+            }
+        }
+    }
+
+    private var modelCard: some View {
+        statusCard(
+            title: "Gemma 4",
+            statusLabel: ollamaManager.modelState.statusLabel,
+            detail: ollamaManager.modelSummary,
+            iconName: modelIconName,
+            tint: modelTint
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                statusMetric(title: "模型状态", value: ollamaManager.modelState.title)
+                statusMetric(title: "固定模型", value: EmbeddedOllamaManager.supportedModelID)
+                statusMetric(title: "模型目录", value: ollamaManager.managedModelsPath)
+            }
+        }
+    }
+
+    private var bindingCard: some View {
+        statusCard(
+            title: "OpenClaw 绑定",
+            statusLabel: providerManager.bindingState.statusLabel,
+            detail: providerManager.configSummary,
+            iconName: bindingIconName,
+            tint: bindingTint
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                statusMetric(title: "绑定状态", value: providerManager.bindingState.title)
+                statusMetric(title: "当前默认模型", value: providerManager.currentModelLabel)
+                statusMetric(title: "认证来源", value: authSourceLabel)
+            }
+        }
+    }
+
+    private var activityCard: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(statusTint.opacity(0.20))
-                        .frame(width: 44, height: 44)
-
-                    Image(systemName: currentStatusContent.iconName)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(statusTint)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(currentStatusContent.title)
-                        .font(.headline)
-
-                    Text(currentStatusContent.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            HStack(alignment: .center, spacing: 12) {
+                Text("恢复与诊断")
+                    .font(.headline)
 
                 Spacer()
 
                 Button {
-                    manager.refreshStatus(syncSelectionWithDefault: true)
+                    ollamaManager.refreshStatus()
+                    providerManager.refreshStatus()
                 } label: {
-                    if manager.isRefreshing {
+                    if ollamaManager.isRefreshing || providerManager.isRefreshing {
                         ProgressView()
                             .controlSize(.small)
                     } else {
@@ -336,66 +143,43 @@ struct ProviderManagementView: View {
                     }
                 }
                 .buttonStyle(.bordered)
-                .disabled(manager.isRefreshing || isBusy)
-            }
-            .padding(16)
-            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            HStack(alignment: .top, spacing: 12) {
-                statusMetric(title: "当前 Provider", value: currentProviderLabel)
-                statusMetric(title: "当前模型", value: currentModelLabel)
-                statusMetric(title: "连接状态", value: currentStatusContent.connectionLabel)
+                .disabled(isBusy || ollamaManager.isRefreshing || providerManager.isRefreshing)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("下一步")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(providerManager.lastActionSummary)
+                    .font(.subheadline.weight(.medium))
 
-                Text(currentStatusContent.nextStep)
-                    .font(.subheadline)
+                Text(providerManager.lastActionDetail)
+                    .font(.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-                ForEach(shortGuidance, id: \.self) { guidance in
-                    suggestionRow(guidance)
+            HStack(spacing: 10) {
+                Button(primaryOllamaActionTitle) {
+                    ollamaManager.prepareRuntimeAndModel()
                 }
-            }
+                .buttonStyle(.borderedProminent)
+                .disabled(isBusy)
 
-            if shouldShowRecentActivity {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("最近操作")
-                        .font(.headline)
-
-                    Text(manager.lastActionSummary)
-                        .font(.subheadline.weight(.medium))
-
-                    Text(manager.lastActionDetail)
-                        .font(.caption)
-                        .foregroundStyle(theme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                Button(providerManager.isSaving ? "恢复中..." : "恢复 Gemma 4 配置") {
+                    providerManager.restoreGemma4Configuration()
                 }
+                .buttonStyle(.bordered)
+                .disabled(isBusy)
+
+                Spacer()
             }
 
             DisclosureGroup("高级信息", isExpanded: $isAdvancedInfoExpanded) {
                 VStack(alignment: .leading, spacing: 12) {
-                    advancedInfoRow(title: "配置文件", value: manager.configPath ?? "未检测到")
-                    advancedInfoRow(title: "OpenClaw CLI", value: manager.binaryPath ?? "未检测到")
-                    advancedInfoRow(title: "当前认证来源", value: currentAuthSourceLabel)
-
-                    if manager.selectedProvider.usesInteractiveOAuthFlow {
-                        Divider()
-
-                        advancedInfoRow(
-                            title: "登录命令",
-                            value: "openclaw models auth login --provider openai-codex --set-default"
-                        )
-                        advancedInfoRow(
-                            title: "浏览器回调",
-                            value: "http://localhost:1455/auth/callback"
-                        )
-                        advancedInfoRow(
-                            title: "默认模型",
-                            value: "openai-codex/gpt-5.4"
-                        )
-                    }
+                    advancedInfoRow(title: "OpenClaw CLI", value: providerManager.binaryPath ?? "未检测到")
+                    advancedInfoRow(title: "OpenClaw 配置", value: providerManager.configPath ?? "未检测到")
+                    advancedInfoRow(title: "Ollama CLI", value: ollamaManager.cliPath ?? "未检测到")
+                    advancedInfoRow(title: "Ollama 安装目录", value: ollamaManager.managedRuntimePath)
+                    advancedInfoRow(title: "固定模型引用", value: OpenClawProviderManager.supportedModelReference)
+                    advancedInfoRow(title: "最近命令输出", value: providerManager.lastCommandOutput.nonEmptyOr(ollamaManager.lastCommandOutput.nonEmptyOr("暂无输出")))
                 }
                 .padding(.top, 12)
             }
@@ -406,255 +190,136 @@ struct ProviderManagementView: View {
         .cardStyle(theme: theme, colorScheme: colorScheme)
     }
 
-    private var configurationCard: some View {
+    private var authSourceLabel: String {
+        if let source = providerManager.activeAuthState?.source?.nonEmptyOr(providerManager.activeAuthState?.detail ?? "未检测到") {
+            return source
+        }
+        return providerManager.activeAuthState?.detail ?? "未检测到"
+    }
+
+    private var primaryOllamaActionTitle: String {
+        if ollamaManager.isPreparing {
+            return ollamaManager.needsRuntimeInstall ? "安装中..." : "准备中..."
+        }
+        return ollamaManager.needsRuntimeInstall ? "安装 Ollama CLI" : "准备 / 重新准备 Ollama"
+    }
+
+    private var runtimeTint: Color {
+        switch ollamaManager.runtimeState {
+        case .ready:
+            Color.green
+        case .starting:
+            Color.orange
+        case .missing, .failed:
+            Color.red
+        }
+    }
+
+    private var modelTint: Color {
+        switch ollamaManager.modelState {
+        case .ready:
+            Color.green
+        case .pulling:
+            Color.orange
+        case .missing, .failed:
+            Color.red
+        case .unknown:
+            theme.secondaryText
+        }
+    }
+
+    private var bindingTint: Color {
+        switch providerManager.bindingState {
+        case .ready:
+            Color.green
+        case .applying, .waitingForOllama:
+            Color.orange
+        case .drift, .needsConfiguration, .openClawMissing, .failed:
+            Color.red
+        }
+    }
+
+    private var runtimeIconName: String {
+        switch ollamaManager.runtimeState {
+        case .ready:
+            "checkmark.circle.fill"
+        case .starting:
+            "arrow.triangle.2.circlepath"
+        case .missing, .failed:
+            "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var modelIconName: String {
+        switch ollamaManager.modelState {
+        case .ready:
+            "shippingbox.fill"
+        case .pulling:
+            "arrow.down.circle.fill"
+        case .missing, .failed:
+            "exclamationmark.triangle.fill"
+        case .unknown:
+            "questionmark.circle"
+        }
+    }
+
+    private var bindingIconName: String {
+        switch providerManager.bindingState {
+        case .ready:
+            "link.circle.fill"
+        case .applying:
+            "arrow.triangle.2.circlepath.circle.fill"
+        case .waitingForOllama:
+            "clock.arrow.circlepath"
+        case .drift, .needsConfiguration, .openClawMissing, .failed:
+            "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func statusCard<Content: View>(
+        title: String,
+        statusLabel: String,
+        detail: String,
+        iconName: String,
+        tint: Color,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("配置与切换")
-                    .font(.headline)
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(tint.opacity(0.20))
+                        .frame(width: 44, height: 44)
 
-                Text(manager.selectedProvider.shortDescription)
-                    .font(.subheadline)
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("默认 Provider")
-                    .font(.headline)
-
-                Picker("默认 Provider", selection: $manager.selectedProvider) {
-                    ForEach(ProviderKind.allCases) { provider in
-                        Text(provider.displayName).tag(provider)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-            }
-
-            VStack(alignment: .leading, spacing: 14) {
-                if manager.selectedProvider.usesInteractiveOAuthFlow {
-                    oauthLoginCard
-                } else {
-                    if manager.selectedProvider == .custom {
-                        customCompatibilityPicker
-                    }
-
-                    ProviderInputField(
-                        title: "Base URL",
-                        helpText: baseURLHelpText,
-                        text: $manager.draftBaseURL
-                    )
-
-                    ProviderInputField(
-                        title: "默认模型",
-                        helpText: "保存后会切换为当前默认模型。",
-                        text: $manager.draftModel
-                    )
-
-                    ProviderSecureField(
-                        title: "API Key",
-                        helpText: manager.selectedProvider.apiKeyHelpText,
-                        text: $manager.draftAPIKey
-                    )
-                }
-            }
-
-            HStack(spacing: 10) {
-                if manager.selectedProvider.usesInteractiveOAuthFlow {
-                    Button(primaryActionTitle) {
-                        manager.launchOpenAICodexLogin()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(manager.selectedProvider.accentColor)
-                    .disabled(isBusy || manager.binaryPath == nil)
-                } else {
-                    Button(primaryActionTitle) {
-                        manager.saveCurrentProvider()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isBusy || manager.binaryPath == nil)
-
-                    Button("清空输入") {
-                        manager.clearDrafts()
-                    }
-                    .buttonStyle(.bordered)
+                    Image(systemName: iconName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(tint)
                 }
 
-                Button("刷新状态") {
-                    manager.refreshStatus(syncSelectionWithDefault: false)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .buttonStyle(.bordered)
-                .disabled(manager.isRefreshing || isBusy)
 
                 Spacer()
+
+                Text(statusLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(tint.opacity(0.12), in: Capsule())
             }
+
+            content()
         }
         .padding(20)
         .cardStyle(theme: theme, colorScheme: colorScheme)
-    }
-
-    private var primaryActionTitle: String {
-        if manager.selectedProvider.usesInteractiveOAuthFlow {
-            if manager.isInteractiveLoginInProgress {
-                return "等待登录完成..."
-            }
-
-            return manager.detectedAuthState?.isConfigured == true
-                ? "重新使用 ChatGPT 登录"
-                : "使用 ChatGPT 登录"
-        }
-
-        return "保存到 OpenClaw"
-    }
-
-    private var currentProviderLabel: String {
-        manager.activeProvider?.displayName ?? "未设置"
-    }
-
-    private var currentModelLabel: String {
-        manager.activeModelDisplay ?? manager.defaultModelRef ?? "未设置"
-    }
-
-    private var currentAuthSourceLabel: String {
-        if manager.activeProvider == manager.selectedProvider && manager.hasExplicitAPIKeyOverride {
-            return "config.apiKey"
-        }
-
-        guard let authState = manager.activeAuthState else {
-            return "未检测到"
-        }
-
-        if let source = authState.source?.nonEmptyOr(authState.detail) {
-            return source
-        }
-
-        return authState.detail
-    }
-
-    private var shouldShowRecentActivity: Bool {
-        manager.isSaving ||
-            manager.isRefreshing ||
-            manager.isInteractiveLoginInProgress ||
-            manager.lastActionSummary.contains("失败") ||
-            manager.lastActionSummary.contains("超时") ||
-            manager.lastActionSummary.contains("未检测到")
-    }
-
-    private var statusTint: Color {
-        switch currentStatusContent.tone {
-        case .accent:
-            return manager.selectedProvider.accentColor
-        case .warning:
-            return Color.orange
-        case .neutral:
-            return theme.secondaryText
-        }
-    }
-
-    private var shortGuidance: [String] {
-        switch manager.selectedProvider {
-        case .openAICodex:
-            return [
-                "通过 ChatGPT 登录即可使用 OpenAI Codex。",
-                "登录完成后，页面会自动刷新并同步状态。",
-            ]
-        case .openAI, .anthropic:
-            return [
-                "通常只需要填写默认模型和 API Key。",
-                "如果你走代理地址，再补充 Base URL。",
-            ]
-        case .openRouter, .liteLLM:
-            return [
-                "如果平台已经给出模型名称，直接填在默认模型即可。",
-                "只有使用自定义接入地址时才需要填写 Base URL。",
-            ]
-        case .ollama:
-            return [
-                "本地 Ollama 一般使用 `http://127.0.0.1:11434`。",
-                "确认模型名称后保存即可切换默认模型。",
-            ]
-        case .custom:
-            return [
-                "请先确认服务地址，再填写模型名称。",
-                "如果服务要求鉴权，再补充 API Key。",
-            ]
-        }
-    }
-
-    private var baseURLHelpText: String {
-        switch manager.selectedProvider {
-        case .openAI:
-            "直接使用 OpenAI 官方 API 时可留空；如果走代理地址，再填写。"
-        case .openAICodex:
-            "OpenAI Codex 通过 ChatGPT 登录，此处不需要填写。"
-        case .anthropic:
-            "直接使用 Anthropic 官方 API 时可留空；如果走代理地址，再填写。"
-        case .openRouter, .liteLLM:
-            "只有在你使用自定义接入地址时才需要填写。"
-        case .ollama:
-            "本地 Ollama 一般使用 `http://127.0.0.1:11434`。"
-        case .custom:
-            "请填写你的服务地址。"
-        }
-    }
-
-    private var customCompatibilityPicker: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("兼容协议")
-                .font(.headline)
-
-            Picker("兼容协议", selection: $manager.customCompatibility) {
-                ForEach(ProviderCustomCompatibility.allCases) { compatibility in
-                    Text(compatibility.displayName).tag(compatibility)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
-    private var oauthLoginCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("登录方式")
-                .font(.headline)
-
-            Text(oauthSummaryText)
-                .font(.subheadline)
-                .foregroundStyle(theme.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                suggestionRow("点击按钮后，Clawbar 会帮你打开登录流程。")
-                suggestionRow("完成浏览器授权后，状态会自动刷新。")
-            }
-            .padding(14)
-            .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-    }
-
-    private var oauthSummaryText: String {
-        if manager.detectedAuthState?.isConfigured == true {
-            return "当前已经完成 ChatGPT 登录。如需切换账号，可以重新登录。"
-        }
-
-        return "OpenAI Codex 通过 ChatGPT 登录完成认证，不需要手动填写 API Key。"
-    }
-
-    private var providerBadge: some View {
-        HStack(spacing: 8) {
-            Image(systemName: manager.selectedProvider.systemImageName)
-                .font(.system(size: 12, weight: .semibold))
-
-            Text(manager.selectedProvider.displayName)
-                .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(manager.selectedProvider.accentColor)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(manager.selectedProvider.accentColor.opacity(0.15), in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(manager.selectedProvider.accentColor.opacity(0.35), lineWidth: 1)
-        )
     }
 
     private func statusMetric(title: String, value: String) -> some View {
@@ -666,7 +331,6 @@ struct ProviderManagementView: View {
             Text(value)
                 .font(.subheadline)
                 .textSelection(.enabled)
-                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -686,107 +350,21 @@ struct ProviderManagementView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-    private func suggestionRow(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Circle()
-                .fill(manager.selectedProvider.accentColor)
-                .frame(width: 6, height: 6)
-                .padding(.top, 6)
-
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(theme.secondaryText)
-        }
-    }
 }
 
-private struct ProviderInputField: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let title: String
-    let helpText: String
-    @Binding var text: String
-
-    private var theme: ManagementTheme {
-        ManagementTheme(colorScheme: colorScheme)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-
-            Text(helpText)
-                .font(.caption)
-                .foregroundStyle(theme.secondaryText)
-
-            TextField("", text: $text)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(theme.inputBorder, lineWidth: 1)
-                )
-        }
-    }
-}
-
-private struct ProviderSecureField: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let title: String
-    let helpText: String
-    @Binding var text: String
-
-    private var theme: ManagementTheme {
-        ManagementTheme(colorScheme: colorScheme)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-
-            Text(helpText)
-                .font(.caption)
-                .foregroundStyle(theme.secondaryText)
-
-            SecureField("", text: $text)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(theme.inputBorder, lineWidth: 1)
-                )
-        }
+private extension String {
+    func nonEmptyOr(_ fallback: String) -> String {
+        trimmedNonEmpty(self) ?? fallback
     }
 }
 
 private extension View {
     func cardStyle(theme: ManagementTheme, colorScheme: ColorScheme) -> some View {
-        background(theme.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        background(theme.cardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(theme.cardBorder, lineWidth: 1)
             )
-            .shadow(
-                color: theme.shadowColor,
-                radius: colorScheme == .dark ? 0 : 18,
-                y: colorScheme == .dark ? 0 : 8
-            )
-    }
-}
-
-private extension String {
-    var trimmedNonEmpty: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    func nonEmptyOr(_ fallback: String) -> String {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : self
+            .shadow(color: theme.shadowColor, radius: colorScheme == .dark ? 8 : 18, y: 8)
     }
 }

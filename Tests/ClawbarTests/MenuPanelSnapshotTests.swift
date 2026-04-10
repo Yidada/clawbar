@@ -11,7 +11,7 @@ final class MenuPanelSnapshotTests: XCTestCase {
             isRefreshingStatus: false,
             lastStatusRefreshDate: Date(timeIntervalSince1970: 123),
             statusText: "OpenClaw 已安装",
-            detailText: "Provider 已配置 · Gateway 可达 · Channel 已就绪",
+            detailText: "Ollama 已配置 · Gateway 可达 · Channel 已就绪",
             installedBinaryPath: "/opt/homebrew/bin/openclaw",
             statusExcerpt: "OpenClaw 2026.4.2",
             healthSnapshot: .deterministicInstalled
@@ -47,7 +47,7 @@ final class MenuPanelSnapshotTests: XCTestCase {
 
         XCTAssertEqual(snapshot.state, .missing)
         XCTAssertEqual(snapshot.title, "OpenClaw 未安装")
-        XCTAssertEqual(snapshot.subtitle, "安装后即可在此查看 Provider、Gateway 和 Channel 摘要。")
+        XCTAssertEqual(snapshot.subtitle, "安装后即可在此查看 Ollama、Gateway 和 Channel 摘要。")
         XCTAssertNil(snapshot.metadata)
         XCTAssertTrue(snapshot.showsInstallAction)
         XCTAssertFalse(snapshot.showsUpgradeAction)
@@ -91,8 +91,8 @@ final class MenuPanelSnapshotTests: XCTestCase {
                     dimension: .provider,
                     level: .healthy,
                     statusLabel: "已配置",
-                    summary: "OpenRouter / qwen/qwen3.6-plus:free",
-                    detail: "认证来源：env: OPENROUTER_API_KEY"
+                    summary: "Ollama / gemma4",
+                    detail: "认证来源：env: OLLAMA_API_KEY"
                 ),
                 OpenClawHealthDimensionSnapshot(
                     dimension: .gateway,
@@ -118,7 +118,7 @@ final class MenuPanelSnapshotTests: XCTestCase {
             isRefreshingStatus: false,
             lastStatusRefreshDate: Date(timeIntervalSince1970: 123),
             statusText: "OpenClaw 已安装",
-            detailText: "Provider 已配置 · Gateway 不可达 · Channel 已就绪",
+            detailText: "Ollama 已配置 · Gateway 不可达 · Channel 已就绪",
             installedBinaryPath: "/opt/homebrew/bin/openclaw",
             statusExcerpt: "OpenClaw 2026.4.2",
             healthSnapshot: warningSnapshot

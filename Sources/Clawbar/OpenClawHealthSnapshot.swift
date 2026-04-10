@@ -72,8 +72,8 @@ struct OpenClawHealthSnapshot: Equatable, Sendable {
                 dimension: .provider,
                 level: .unknown,
                 statusLabel: "等待刷新",
-                summary: "正在读取默认模型和认证状态",
-                detail: "Clawbar 下一次状态刷新会同步 Provider 健康信息。"
+                summary: "正在读取 Ollama 与默认模型状态",
+                detail: "Clawbar 下一次状态刷新会同步 Ollama / Gemma 4 健康信息。"
             ),
             OpenClawHealthDimensionSnapshot(
                 dimension: .gateway,
@@ -99,8 +99,8 @@ struct OpenClawHealthSnapshot: Equatable, Sendable {
                 dimension: .provider,
                 level: .healthy,
                 statusLabel: "已配置",
-                summary: "OpenRouter / qwen/qwen3.6-plus:free",
-                detail: "认证来源：env: OPENROUTER_API_KEY"
+                summary: "Ollama / gemma4",
+                detail: "认证来源：env: OLLAMA_API_KEY"
             ),
             OpenClawHealthDimensionSnapshot(
                 dimension: .gateway,

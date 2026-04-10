@@ -2,98 +2,66 @@ import XCTest
 @testable import Clawbar
 
 final class ProviderManagementDisplayStateTests: XCTestCase {
-    func testCurrentStatusContentShowsConnectedOpenAICodexState() {
-        let content = ProviderCurrentStatusPresenter.make(
-            currentProvider: .openAICodex,
-            currentModel: "gpt-5.4",
-            currentAuthState: OpenClawProviderAuthState(
-                kind: "oauth",
-                detail: "oauth (openai-codex:user@example.com)",
-                source: nil
-            ),
-            selectedProvider: .openAICodex,
-            isInteractiveLoginInProgress: false,
-            hasPendingCredentialInput: false
-        )
-
-        XCTAssertEqual(content.title, "OpenAI Codex 已连接")
-        XCTAssertEqual(content.detail, "当前默认模型是 gpt-5.4。")
-        XCTAssertEqual(content.connectionLabel, "已连接")
-        XCTAssertEqual(content.nextStep, "如需切换 Provider 或模型，在下方修改后保存。")
+    func testBindingStateTitlesMatchOllamaOnlyFlow() {
+        XCTAssertEqual(OpenClawBindingState.ready.title, "OpenClaw 已绑定 Gemma 4")
+        XCTAssertEqual(OpenClawBindingState.ready.statusLabel, "已绑定")
+        XCTAssertEqual(OpenClawBindingState.waitingForOllama.title, "等待内置 Ollama")
+        XCTAssertEqual(OpenClawBindingState.waitingForOllama.statusLabel, "等待中")
     }
 
-    func testCurrentStatusContentShowsNeedsLoginForOpenAICodexWithoutOAuth() {
-        let content = ProviderCurrentStatusPresenter.make(
-            currentProvider: .openAICodex,
-            currentModel: "gpt-5.4",
-            currentAuthState: OpenClawProviderAuthState(
-                kind: "missing",
-                detail: "missing",
-                source: nil
-            ),
-            selectedProvider: .openAICodex,
-            isInteractiveLoginInProgress: false,
-            hasPendingCredentialInput: false
-        )
-
-        XCTAssertEqual(content.title, "OpenAI Codex 尚未登录")
-        XCTAssertEqual(content.connectionLabel, "未登录")
-        XCTAssertEqual(content.nextStep, "点击“使用 ChatGPT 登录”完成授权。")
+    func testEmbeddedOllamaMatchesSupportedModelWithAndWithoutTag() {
+        XCTAssertTrue(EmbeddedOllamaManager.matchesSupportedModel("gemma4"))
+        XCTAssertTrue(EmbeddedOllamaManager.matchesSupportedModel("gemma4:latest"))
+        XCTAssertFalse(EmbeddedOllamaManager.matchesSupportedModel("llama3.3"))
     }
 
-    func testCurrentStatusContentShowsConnectedStandardProviderState() {
-        let content = ProviderCurrentStatusPresenter.make(
-            currentProvider: .openAI,
-            currentModel: "gpt-5.4",
-            currentAuthState: OpenClawProviderAuthState(
-                kind: "env",
-                detail: "sk-test",
-                source: "env: OPENAI_API_KEY"
-            ),
-            selectedProvider: .openAI,
-            isInteractiveLoginInProgress: false,
-            hasPendingCredentialInput: false
+    func testParseModelNamesReadsTagsPayload() {
+        let data = Data(
+            """
+            {
+              "models": [
+                { "name": "gemma4:latest" },
+                { "name": "qwen3:14b" }
+              ]
+            }
+            """.utf8
         )
 
-        XCTAssertEqual(content.title, "OpenAI 已连接")
-        XCTAssertEqual(content.detail, "当前默认模型是 gpt-5.4。")
-        XCTAssertEqual(content.connectionLabel, "已连接")
+        XCTAssertEqual(
+            EmbeddedOllamaManager.parseModelNames(from: data),
+            ["gemma4:latest", "qwen3:14b"]
+        )
     }
 
-    func testCurrentStatusContentShowsNeedsConfigurationForStandardProviderWithoutAuth() {
-        let content = ProviderCurrentStatusPresenter.make(
-            currentProvider: .anthropic,
-            currentModel: "claude-sonnet-4-6",
-            currentAuthState: OpenClawProviderAuthState(
-                kind: "missing",
-                detail: "missing",
-                source: nil
-            ),
-            selectedProvider: .anthropic,
-            isInteractiveLoginInProgress: false,
-            hasPendingCredentialInput: false
+    func testResolveAvailableCLIPathFallsBackToManagedRuntimeDirectory() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let runtimeURL = rootURL.appendingPathComponent("runtime", isDirectory: true)
+        let cliURL = runtimeURL.appendingPathComponent("ollama", isDirectory: false)
+        try FileManager.default.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: cliURL.path, contents: Data("#!/bin/sh\n".utf8)))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliURL.path)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let resolvedPath = EmbeddedOllamaManager.resolveAvailableCLIPath(
+            environment: [EmbeddedOllamaManager.testManagedRuntimeDirectoryEnvironmentKey: runtimeURL.path],
+            resourceURL: nil
         )
 
-        XCTAssertEqual(content.title, "Anthropic 待完成配置")
-        XCTAssertEqual(content.detail, "当前还缺少可用认证或模型配置。")
-        XCTAssertEqual(content.connectionLabel, "待配置")
-        XCTAssertEqual(content.nextStep, "在下方填写必要信息后点击“保存到 OpenClaw”。")
+        XCTAssertEqual(resolvedPath, cliURL.path)
     }
 
-    func testCurrentStatusContentUsesPendingInputAsNextStepWhenEditingStandardProvider() {
-        let content = ProviderCurrentStatusPresenter.make(
-            currentProvider: .openAI,
-            currentModel: "gpt-5.4",
-            currentAuthState: OpenClawProviderAuthState(
-                kind: "env",
-                detail: "sk-test",
-                source: "env: OPENAI_API_KEY"
-            ),
-            selectedProvider: .openAI,
-            isInteractiveLoginInProgress: false,
-            hasPendingCredentialInput: true
+    @MainActor
+    func testRuntimeSummaryExplainsInstallEntryWhenMissing() {
+        let manager = EmbeddedOllamaManager(
+            environmentProvider: { [:] },
+            resourceURLProvider: { nil },
+            runCommand: { _, _, _, _ in
+                EmbeddedOllamaCommandResult(output: "", exitStatus: 0, timedOut: false)
+            },
+            probeModels: { _, _ in [] },
+            installRuntime: { _, _ in "/tmp/ollama" }
         )
 
-        XCTAssertEqual(content.nextStep, "检测到新的 API Key 输入，点击“保存到 OpenClaw”后生效。")
+        XCTAssertTrue(manager.runtimeSummary.contains("下载安装"))
     }
 }

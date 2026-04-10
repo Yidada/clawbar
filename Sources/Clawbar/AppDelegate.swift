@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.refreshInstallerStatus = {
             OpenClawInstaller.shared.refreshInstallationStatus(force: true)
+            OpenClawProviderManager.shared.bootstrapIfPossible(reason: "app.launch")
         }
         super.init()
     }

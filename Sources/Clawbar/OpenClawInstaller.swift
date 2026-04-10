@@ -814,8 +814,12 @@ final class OpenClawInstaller: ObservableObject {
     }
 
     private nonisolated static func providerDisplayName(for providerID: String) -> String {
-        ProviderKind.allCases.first(where: { $0.rawValue == providerID })?.displayName
-            ?? providerID.capitalized
+        switch providerID {
+        case OpenClawProviderManager.supportedProviderID:
+            "Ollama"
+        default:
+            providerID.capitalized
+        }
     }
 
     private nonisolated static func displayChannelStatus(_ channel: OpenClawChannelSnapshot) -> String {
@@ -1232,8 +1236,8 @@ final class OpenClawInstaller: ObservableObject {
 
                     if gatewayPreparation.isReady {
                         self.statusText = "OpenClaw 安装完成。"
-                        self.detailText = "Gateway 服务已安装；下一步可前往 Channels 页按需安装和绑定微信能力。"
-                        self.logText += "\n[Clawbar] OpenClaw 安装完成；Gateway 服务已安装。\n"
+                        self.detailText = "Gateway 服务已安装；Clawbar 会继续准备内置 Ollama 和 Gemma 4。"
+                        self.logText += "\n[Clawbar] OpenClaw 安装完成；Gateway 服务已安装，正在准备内置 Ollama 和 Gemma 4。\n"
                     } else {
                         self.statusText = "OpenClaw 安装完成，但 Gateway 服务未就绪。"
                         self.detailText = gatewayPreparation.failureDetail ?? "请前往 Gateway 页检查服务安装状态。"
@@ -1241,6 +1245,7 @@ final class OpenClawInstaller: ObservableObject {
                     }
 
                     OpenClawGatewayManager.shared.refreshStatus()
+                    OpenClawProviderManager.shared.bootstrapIfPossible(reason: "openclaw.install")
                     self.refreshInstallationStatus(force: true)
                 }
             }
@@ -1286,8 +1291,9 @@ final class OpenClawInstaller: ObservableObject {
         switch result {
         case .success:
             statusText = "OpenClaw 升级完成。"
-            detailText = "官方升级流程已完成，正在刷新本机状态。"
+            detailText = "官方升级流程已完成，正在刷新本机状态并校正 Gemma 4 配置。"
             logText += "\n[Clawbar] OpenClaw 升级完成。\n"
+            OpenClawProviderManager.shared.bootstrapIfPossible(reason: "openclaw.update")
             refreshInstallationStatus(force: true)
         case let .failure(error):
             statusText = "OpenClaw 升级失败。"

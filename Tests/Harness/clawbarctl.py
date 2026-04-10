@@ -668,7 +668,7 @@ def unit_test_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def find_smoke_window_id() -> str:
+def find_smoke_window() -> dict[str, Any] | None:
     result = command_output(
         [
             "swift",
@@ -682,20 +682,43 @@ def find_smoke_window_id() -> str:
                 let expectedTitle = "Clawbar Smoke Test"
                 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 
-                if let match = windows.first(where: { window in
+                let exactMatch = windows.first(where: { window in
                     let owner = window[kCGWindowOwnerName as String] as? String
                     let title = window[kCGWindowName as String] as? String
                     return owner == expectedOwner && title == expectedTitle
-                }),
-                let id = match[kCGWindowNumber as String] as? NSNumber {
-                    print(id.intValue)
+                })
+
+                let fallbackMatch = windows.first(where: { window in
+                    let owner = window[kCGWindowOwnerName as String] as? String
+                    return owner == expectedOwner
+                })
+
+                if let match = exactMatch ?? fallbackMatch,
+                   let id = match[kCGWindowNumber as String] as? NSNumber,
+                   let bounds = match[kCGWindowBounds as String] as? [String: Any],
+                   let x = bounds["X"] as? NSNumber,
+                   let y = bounds["Y"] as? NSNumber,
+                   let width = bounds["Width"] as? NSNumber,
+                   let height = bounds["Height"] as? NSNumber {
+                    let payload: [String: Any] = [
+                        "id": id.intValue,
+                        "x": x.intValue,
+                        "y": y.intValue,
+                        "width": width.intValue,
+                        "height": height.intValue,
+                    ]
+                    let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+                    print(String(decoding: data, as: UTF8.self))
                 }
                 """
             ),
         ],
         check=False,
     )
-    return result.stdout.strip()
+    output = result.stdout.strip()
+    if not output:
+        return None
+    return json.loads(output)
 
 
 def smoke_test_command(args: argparse.Namespace) -> int:
@@ -709,10 +732,10 @@ def smoke_test_command(args: argparse.Namespace) -> int:
     process = launch_app_process(binary_path=binary_path, log_path=log_path, env=env)
 
     try:
-        window_id = ""
+        window_info: dict[str, Any] | None = None
         for _ in range(args.window_retries):
-            window_id = find_smoke_window_id()
-            if window_id:
+            window_info = find_smoke_window()
+            if window_info:
                 break
             if process.poll() is not None:
                 raise CommandFailure(
@@ -720,10 +743,24 @@ def smoke_test_command(args: argparse.Namespace) -> int:
                 )
             time.sleep(args.window_wait)
 
-        if not window_id:
+        if not window_info:
             raise CommandFailure(f"Smoke test window was not found; inspect {log_path}")
 
-        command_output(["screencapture", "-x", "-l", window_id, str(screenshot_path)])
+        window_id = str(window_info["id"])
+        capture = command_output(
+            ["screencapture", "-x", "-l", window_id, str(screenshot_path)],
+            check=False,
+        )
+        if capture.exit_code != 0:
+            region = "{x},{y},{width},{height}".format(**window_info)
+            capture = command_output(
+                ["screencapture", "-x", "-R", region, str(screenshot_path)],
+                check=False,
+            )
+        if capture.exit_code != 0:
+            raise CommandFailure(
+                f"Smoke screenshot failed; inspect {log_path}\n{capture.combined.strip()}"
+            )
         if not screenshot_path.is_file() or screenshot_path.stat().st_size == 0:
             raise CommandFailure(f"Screenshot was not created: {screenshot_path}")
 
@@ -738,6 +775,7 @@ def smoke_test_command(args: argparse.Namespace) -> int:
         "log_path": str(log_path),
         "screenshot_path": str(screenshot_path),
         "window_id": window_id,
+        "window_bounds": window_info,
     }
     summary_path = write_summary(run_dir, summary)
     print_run_result(

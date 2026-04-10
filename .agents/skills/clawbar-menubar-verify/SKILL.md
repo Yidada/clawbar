@@ -10,7 +10,7 @@ Use this skill when you need a reproducible UI check of the live `Clawbar` menu 
 ## Workflow
 
 1. Work from the repository root of the current `clawbar` checkout.
-2. Run `./.agents/skills/clawbar-menubar-screenshot/scripts/verify-menubar.sh`.
+2. Run `./.agents/skills/clawbar-menubar-verify/scripts/verify-menubar.sh`.
 3. Inspect the printed menu item titles. A non-zero exit means the menu content drifted from the expected UI test snapshot.
 
 ## Behavior

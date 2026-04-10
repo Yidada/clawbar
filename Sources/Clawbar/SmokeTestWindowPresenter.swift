@@ -40,6 +40,7 @@ final class SmokeTestWindowPresenter {
         let hostingController = NSHostingController(rootView: contentView)
         let window = NSWindow(contentViewController: hostingController)
         window.title = configuration.smokeTestWindowTitle
+        window.sharingType = .readOnly
         window.setContentSize(NSSize(width: 360, height: 220))
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.center()

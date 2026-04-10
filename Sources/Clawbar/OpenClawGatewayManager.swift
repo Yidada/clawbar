@@ -176,10 +176,6 @@ final class OpenClawGatewayManager: ObservableObject {
         let displayPath = OpenClawInstaller.displayBinaryPath(binaryPath)
 
         if commandResult.timedOut {
-            if let fallback = OpenClawLocalSnapshotSupport.gatewaySnapshot(binaryPath: binaryPath) {
-                return fallback
-            }
-
             return OpenClawGatewayStatusSnapshot(
                 state: .unknown,
                 detail: "gateway status 命令未在 8 秒内完成。",

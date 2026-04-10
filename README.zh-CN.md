@@ -29,7 +29,7 @@ swift run Clawbar
 
 ## Clawbar 管理内容
 
-- OpenClaw 的安装与卸载，并在独立窗口中展示执行日志和状态反馈
+- OpenClaw 的安装与卸载，并在独立窗口中展示执行日志和状态反馈；卸载时保留 `~/.openclaw`
 - 本地 Gateway token 准备，以及 Gateway 后台服务管理
 - 通过 `openclaw` CLI 管理 Provider 配置、默认模型和认证状态
 - 支持飞书接入配置和微信接入流程的 Channels 管理

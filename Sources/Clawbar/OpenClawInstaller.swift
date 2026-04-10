@@ -127,20 +127,6 @@ private enum OpenClawOperation {
     }
 }
 
-private enum OpenClawInstallAttempt: Equatable {
-    case primary
-    case fallback(registry: String)
-
-    var registry: String? {
-        switch self {
-        case .primary:
-            nil
-        case let .fallback(registry):
-            registry
-        }
-    }
-}
-
 struct OpenClawStatusSnapshot: Equatable, Sendable {
     let title: String
     let detail: String
@@ -253,10 +239,6 @@ final class OpenClawInstaller: ObservableObject {
     nonisolated static let installCommand = "curl -fsSL \(installScriptURL.absoluteString) | bash -s -- --no-onboard"
     nonisolated static let updateCommand = "openclaw update --yes"
     nonisolated static let uninstallCommand = "openclaw uninstall --all --yes --non-interactive && npm rm -g openclaw"
-    nonisolated static let defaultFallbackNPMRegistry = "https://bnpm.byted.org"
-    nonisolated static let npmRegistryEnvironmentKey = "OPENCLAW_NPM_REGISTRY"
-    nonisolated static let npmRegistryFallbackEnvironmentKey = "OPENCLAW_NPM_REGISTRY_FALLBACK"
-    nonisolated static let npmConfigRegistryEnvironmentKey = "npm_config_registry"
     nonisolated static let detectCommand = "command -v openclaw"
     nonisolated static let gatewayInstallCommand = "openclaw gateway install --json"
     nonisolated static let statusArguments = ["status", "--json"]
@@ -293,7 +275,6 @@ final class OpenClawInstaller: ObservableObject {
     private let processFactory: ProcessFactory
     private var refreshTimer: Timer?
     private var lastOperation: OpenClawOperation = .install
-    private var activeInstallAttempt: OpenClawInstallAttempt = .primary
 
     init(
         refreshInterval: TimeInterval = OpenClawInstaller.defaultRefreshInterval,
@@ -430,7 +411,7 @@ final class OpenClawInstaller: ObservableObject {
             return
         }
 
-        startInstallAttempt(.primary)
+        startOperation(.install)
     }
 
     func startUninstallIfNeeded() {
@@ -464,124 +445,17 @@ final class OpenClawInstaller: ObservableObject {
 
     nonisolated static func installationEnvironment(base: [String: String]) -> [String: String] {
         var environment = base
-        environment["PATH"] = installationSearchPaths(base: base).joined(separator: ":")
-        return environment
-    }
+        let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-    nonisolated static func installationSearchPaths(
-        base: [String: String],
-        homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
-    ) -> [String] {
-        var paths: [String] = []
-
-        func appendPath(_ value: String?) {
-            guard let value else { return }
-
-            for component in value.split(separator: ":") {
-                let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty, !paths.contains(trimmed) else { continue }
-                paths.append(trimmed)
+        if let currentPath = environment["PATH"], !currentPath.isEmpty {
+            if !currentPath.contains("/opt/homebrew/bin") {
+                environment["PATH"] = "\(defaultPath):\(currentPath)"
             }
-        }
-
-        let basePath = trimmedNonEmpty(base["PATH"])
-        if basePath != nil {
-            appendPath(basePath)
         } else {
-            appendPath("/opt/homebrew/bin")
-            appendPath("/usr/local/bin")
-            appendPath("/usr/bin")
-            appendPath("/bin")
-            appendPath("/usr/sbin")
-            appendPath("/sbin")
+            environment["PATH"] = defaultPath
         }
 
-        if let bunInstall = trimmedNonEmpty(base["BUN_INSTALL"]) {
-            appendPath("\(bunInstall)/bin")
-        }
-        if let pnpmHome = trimmedNonEmpty(base["PNPM_HOME"]) {
-            appendPath(pnpmHome)
-        }
-        if let npmPrefix = trimmedNonEmpty(base["npm_config_prefix"] ?? base["NPM_CONFIG_PREFIX"]) {
-            appendPath("\(npmPrefix)/bin")
-        }
-
-        appendPath("/opt/homebrew/bin")
-        appendPath("/usr/local/bin")
-        appendPath("/usr/bin")
-        appendPath("/bin")
-        appendPath("/usr/sbin")
-        appendPath("/sbin")
-        appendPath("\(homeDirectoryPath)/.bun/bin")
-        appendPath("\(homeDirectoryPath)/Library/pnpm")
-        appendPath("\(homeDirectoryPath)/.npm-global/bin")
-        appendPath("\(homeDirectoryPath)/.local/bin")
-
-        return paths
-    }
-
-    private nonisolated static func installationEnvironment(
-        base: [String: String],
-        installAttempt: OpenClawInstallAttempt
-    ) -> [String: String] {
-        var environment = installationEnvironment(base: base)
-        guard let registry = installAttempt.registry else {
-            return environment
-        }
-
-        environment[npmConfigRegistryEnvironmentKey] = registry
-        environment[npmRegistryEnvironmentKey] = registry
         return environment
-    }
-
-    nonisolated static func installRetryFallbackRegistry(base: [String: String]) -> String? {
-        if let configured = trimmedNonEmpty(base[npmRegistryFallbackEnvironmentKey]) {
-            switch configured.lowercased() {
-            case "0", "off", "false", "none", "disabled":
-                return nil
-            default:
-                return configured
-            }
-        }
-
-        return defaultFallbackNPMRegistry
-    }
-
-    nonisolated static func shouldRetryInstallWithFallback(logText: String) -> Bool {
-        let normalized = logText.lowercased()
-
-        let nonNetworkMarkers = [
-            "eexist",
-            "enotempty",
-            "eacces",
-            "eperm",
-            "permission denied",
-            "unsupported engine",
-            "notsup",
-            "node-gyp",
-            "gyp err!"
-        ]
-        if nonNetworkMarkers.contains(where: normalized.contains) {
-            return false
-        }
-
-        let networkMarkers = [
-            "econnreset",
-            "etimedout",
-            "eai_again",
-            "enotfound",
-            "fetch failed",
-            "socket hang up",
-            "503 service unavailable",
-            "502 bad gateway",
-            "504 gateway timeout",
-            "getaddrinfo",
-            "network request failed",
-            "unable to connect",
-            "tarball",
-            "packument"
-        ]
-        return networkMarkers.contains(where: normalized.contains)
     }
 
     nonisolated static func parseDetectedBinaryPath(_ output: String) -> String? {
@@ -1145,12 +1019,8 @@ final class OpenClawInstaller: ObservableObject {
             environment,
             8
         )
-        if !result.timedOut, result.exitStatus == 0,
-           let snapshot = OpenClawProviderManager.parseStatusSnapshot(result.output, binaryPath: binaryPath) {
-            return snapshot
-        }
-
-        return OpenClawLocalSnapshotSupport.providerSnapshot(binaryPath: binaryPath)
+        guard !result.timedOut, result.exitStatus == 0 else { return nil }
+        return OpenClawProviderManager.parseStatusSnapshot(result.output, binaryPath: binaryPath)
     }
 
     private nonisolated static func fetchGatewayStatusSnapshot(binaryPath: String, environment: [String: String]) -> OpenClawGatewayStatusSnapshot {
@@ -1273,91 +1143,18 @@ final class OpenClawInstaller: ObservableObject {
         lastOperation
     }
 
-    private nonisolated static func displayInstallCommand(for attempt: OpenClawInstallAttempt) -> String {
-        guard let registry = attempt.registry else {
-            return installCommand
-        }
-
-        return "env \(npmRegistryEnvironmentKey)=\(registry) \(npmConfigRegistryEnvironmentKey)=\(registry) \(installCommand)"
-    }
-
-    private nonisolated static func firstRetryableInstallFailureLine(from logText: String) -> String? {
-        let retryableMarkers = [
-            "econnreset",
-            "etimedout",
-            "eai_again",
-            "enotfound",
-            "fetch failed",
-            "socket hang up",
-            "503 service unavailable",
-            "502 bad gateway",
-            "504 gateway timeout",
-            "getaddrinfo",
-            "network request failed",
-            "unable to connect",
-            "tarball",
-            "packument"
-        ]
-
-        for line in logText.split(whereSeparator: \.isNewline) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            let normalized = trimmed.lowercased()
-            guard !trimmed.isEmpty else { continue }
-            if retryableMarkers.contains(where: normalized.contains) {
-                return trimmed
-            }
-        }
-
-        return nil
-    }
-
-    private func startInstallAttempt(_ attempt: OpenClawInstallAttempt, preserveLog: Bool = false) {
-        activeInstallAttempt = attempt
-        let environment = Self.installationEnvironment(
-            base: ProcessInfo.processInfo.environment,
-            installAttempt: attempt
-        )
-        startOperation(
-            .install,
-            command: Self.installCommand,
-            environment: environment,
-            preserveLog: preserveLog,
-            commandDisplay: Self.displayInstallCommand(for: attempt)
-        )
-
-        if case let .fallback(registry) = attempt, activeProcess != nil {
-            statusText = "正在使用备用源重试 OpenClaw 安装..."
-            detailText = "已检测到 npm 网络访问失败，正在使用 \(registry) 重试。"
-        }
-    }
-
-    private func startOperation(
-        _ operation: OpenClawOperation,
-        command: String? = nil,
-        environment: [String: String]? = nil,
-        preserveLog: Bool = false,
-        commandDisplay: String? = nil
-    ) {
+    private func startOperation(_ operation: OpenClawOperation) {
         let logURL = operation.logURL
-        let command = command ?? operation.command
-        let environment = environment ?? Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
-        let displayedCommand = commandDisplay ?? command
+        let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
         lastOperation = operation
         lastLogURL = logURL
-        if preserveLog {
-            if !logText.hasSuffix("\n") {
-                logText += "\n"
-            }
-            logText += "\n$ \(displayedCommand)\n\n"
-        } else {
-            logText = "$ \(displayedCommand)\n\n"
-        }
+        logText = "$ \(operation.command)\n\n"
         statusText = operation.startingStatusText
         detailText = operation.startingDetailText
 
         do {
             let process = try processFactory(
-                command,
+                operation.command,
                 logURL,
                 environment,
                 { [weak self] chunk in
@@ -1393,7 +1190,6 @@ final class OpenClawInstaller: ObservableObject {
 
         switch result {
         case .success:
-            activeInstallAttempt = .primary
             let environment = Self.installationEnvironment(base: ProcessInfo.processInfo.environment)
             statusText = "正在完成 OpenClaw 安装..."
             detailText = "安装脚本已完成，正在准备 Gateway 配置与后台服务。"
@@ -1449,21 +1245,6 @@ final class OpenClawInstaller: ObservableObject {
                 }
             }
         case let .failure(error):
-            let installLog = (try? String(contentsOf: logURL, encoding: .utf8)) ?? logText
-            if case .primary = activeInstallAttempt,
-               let registry = Self.installRetryFallbackRegistry(base: ProcessInfo.processInfo.environment),
-               Self.shouldRetryInstallWithFallback(logText: installLog) {
-                if let reason = Self.firstRetryableInstallFailureLine(from: installLog) {
-                    logText += "\n[Clawbar] 检测到 npm 网络访问失败：\(reason)\n"
-                } else {
-                    logText += "\n[Clawbar] 检测到 npm 网络访问失败。\n"
-                }
-                logText += "[Clawbar] 将使用备用 registry 重试：\(registry)\n"
-                startInstallAttempt(.fallback(registry: registry), preserveLog: true)
-                return
-            }
-
-            activeInstallAttempt = .primary
             isInstalling = false
             statusText = "OpenClaw 安装失败。"
             detailText = error.localizedDescription

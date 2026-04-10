@@ -29,7 +29,7 @@ swift run Clawbar
 
 ## What Clawbar Manages
 
-- OpenClaw install and uninstall, with execution logs and status feedback in a dedicated window
+- OpenClaw install and uninstall, with execution logs and status feedback in a dedicated window, while preserving `~/.openclaw` on uninstall
 - Local Gateway token preparation and Gateway background service management
 - Provider configuration, default model selection, and authentication state management through the `openclaw` CLI
 - Channel management for Feishu registration and WeChat onboarding flows

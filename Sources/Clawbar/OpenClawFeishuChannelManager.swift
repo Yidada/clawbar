@@ -95,6 +95,51 @@ enum FeishuChannelAction: String, Equatable, Sendable {
     case refresh
 }
 
+enum FeishuAccessMode: String, CaseIterable, Identifiable, Equatable, Sendable {
+    case specified
+    case everyone
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .specified:
+            return "指定人"
+        case .everyone:
+            return "所有人"
+        }
+    }
+}
+
+struct FeishuAccessConfiguration: Equatable, Sendable {
+    let dmMode: FeishuAccessMode
+    let dmOpenIDs: [String]
+    let groupMode: FeishuAccessMode
+    let groupOpenIDs: [String]
+    let ownerOpenIDCandidate: String?
+    let hasAdvancedGroupRules: Bool
+
+    static let empty = FeishuAccessConfiguration(
+        dmMode: .specified,
+        dmOpenIDs: [],
+        groupMode: .specified,
+        groupOpenIDs: [],
+        ownerOpenIDCandidate: nil,
+        hasAdvancedGroupRules: false
+    )
+
+    func replacingOwnerOpenIDCandidate(with candidate: String?) -> Self {
+        Self(
+            dmMode: dmMode,
+            dmOpenIDs: dmOpenIDs,
+            groupMode: groupMode,
+            groupOpenIDs: groupOpenIDs,
+            ownerOpenIDCandidate: candidate,
+            hasAdvancedGroupRules: hasAdvancedGroupRules
+        )
+    }
+}
+
 struct FeishuChannelStatusSnapshot: Equatable, Sendable {
     let stage: FeishuChannelStage
     let onboardingState: FeishuOnboardingState
@@ -258,6 +303,12 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     @Published private(set) var lastCommandOutput = ""
     @Published private(set) var lastRefreshDate: Date?
     @Published private(set) var toggleIntent = false
+    @Published var dmAccessMode: FeishuAccessMode = .specified
+    @Published var dmOpenIDsText = ""
+    @Published var groupAccessMode: FeishuAccessMode = .specified
+    @Published var groupOpenIDsText = ""
+    @Published private(set) var accessConfigurationError: String?
+    @Published private(set) var hasAdvancedGroupRules = false
 
     private let environmentProvider: EnvironmentProvider
     private let runCommand: CommandRunner
@@ -268,6 +319,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     private var activeProcess: Process?
     private var onboardingTask: Task<Void, Never>?
     private var pendingOnboardingDefaults: FeishuOnboardingDefaultsContext?
+    private var loadedAccessConfiguration: FeishuAccessConfiguration = .empty
 
     init(
         environmentProvider: @escaping EnvironmentProvider = { ProcessInfo.processInfo.environment },
@@ -315,6 +367,39 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         return true
     }
 
+    var canEditAccessConfiguration: Bool {
+        snapshot.channelBound && activeAction == nil && onboardingTask == nil
+    }
+
+    var hasUnsavedAccessConfigurationChanges: Bool {
+        currentDraftAccessConfiguration != loadedAccessConfiguration
+    }
+
+    var dmConfigurationSummary: String {
+        switch loadedAccessConfiguration.dmMode {
+        case .everyone:
+            return "所有人可私信"
+        case .specified:
+            let count = loadedAccessConfiguration.dmOpenIDs.count
+            return count > 0 ? "指定人可私信（\(count) 个 Open ID）" : "指定人可私信"
+        }
+    }
+
+    var groupConfigurationSummary: String {
+        switch loadedAccessConfiguration.groupMode {
+        case .everyone:
+            return "所有人 @机器人"
+        case .specified:
+            let count = loadedAccessConfiguration.groupOpenIDs.count
+            return count > 0 ? "指定人 @机器人（\(count) 个 Open ID）" : "指定人 @机器人"
+        }
+    }
+
+    var accessConfigurationStatusSummary: String? {
+        guard snapshot.channelBound else { return nil }
+        return "DM：\(dmConfigurationSummary)，群聊：\(groupConfigurationSummary)"
+    }
+
     var bindingActionTitle: String {
         snapshot.channelBound ? "重新绑定" : "扫码配置/创建机器人"
     }
@@ -329,6 +414,17 @@ final class OpenClawFeishuChannelManager: ObservableObject {
     var displayDetail: String {
         if let liveProgress = liveProgressStatus {
             return liveProgress.detail
+        }
+        if let accessSummary = accessConfigurationStatusSummary,
+           !isBusy {
+            switch snapshot.stage {
+            case .ready:
+                return "\(accessSummary)。若要打开文档、日历、群消息等完整用户态能力，请回到飞书机器人对话里发送 `/feishu auth` 完成授权。"
+            case .verify, .diagnose:
+                return "\(snapshot.detail)\n当前访问配置：\(accessSummary)。"
+            case .preflight, .install, .configure:
+                break
+            }
         }
         return snapshot.detail
     }
@@ -403,12 +499,110 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         )
     }
 
+    func resetAccessConfigurationDraft() {
+        accessConfigurationError = nil
+        syncAccessConfigurationDraft(from: loadedAccessConfiguration)
+    }
+
+    func saveAccessConfiguration() {
+        guard canEditAccessConfiguration else { return }
+
+        accessConfigurationError = nil
+        let draft = currentDraftAccessConfiguration
+
+        if draft.dmMode == .specified, draft.dmOpenIDs.isEmpty {
+            accessConfigurationError = "DM 的“指定人”模式至少需要一个 Open ID。"
+            return
+        }
+
+        if draft.groupMode == .specified, draft.groupOpenIDs.isEmpty {
+            accessConfigurationError = "群聊的“指定人”模式至少需要一个 Open ID。"
+            return
+        }
+
+        let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
+        let runCommand = runCommand
+
+        activeAction = .refresh
+        lastCommandOutput = ""
+        snapshot = snapshot.updating(
+            stage: .verify,
+            onboardingState: .idle,
+            summary: "正在保存飞书访问配置",
+            detail: "Clawbar 正在写入 DM 和群聊的访问配置，并重启 Gateway。"
+        )
+
+        Task.detached(priority: .userInitiated) {
+            guard let openClawBinaryPath = ChannelCommandSupport.detectBinaryPath(
+                named: "openclaw",
+                environment: environment,
+                runCommand: runCommand
+            ) else {
+                await MainActor.run {
+                    self.activeAction = nil
+                    self.accessConfigurationError = "没有找到 openclaw CLI，无法保存飞书访问配置。"
+                    self.snapshot = self.snapshot.updating(
+                        stage: .diagnose,
+                        onboardingState: .diagnosing,
+                        summary: "保存飞书访问配置失败",
+                        detail: "没有找到 openclaw CLI，无法继续写入配置。",
+                        logSummary: .some("openclaw CLI not found")
+                    )
+                }
+                return
+            }
+
+            do {
+                try Self.writeAccessConfiguration(
+                    openClawBinaryPath: openClawBinaryPath,
+                    environment: environment,
+                    runCommand: runCommand,
+                    configuration: draft,
+                    log: { line in await MainActor.run { self.appendLogLine(line) } }
+                )
+
+                let restartResult = runCommand(
+                    openClawBinaryPath,
+                    ["gateway", "restart", "--json"],
+                    environment,
+                    20
+                )
+
+                await MainActor.run {
+                    if !self.lastCommandOutput.hasSuffix("\n") {
+                        self.lastCommandOutput += "\n"
+                    }
+                    self.lastCommandOutput += "\n$ openclaw gateway restart --json\n\n"
+                    self.lastCommandOutput += restartResult.output
+                    self.activeAction = nil
+                    self.accessConfigurationError = nil
+                    self.loadedAccessConfiguration = draft
+                    self.syncAccessConfigurationDraft(from: draft)
+                    self.refreshStatus()
+                }
+            } catch {
+                await MainActor.run {
+                    self.activeAction = nil
+                    self.accessConfigurationError = error.localizedDescription
+                    self.snapshot = self.snapshot.updating(
+                        stage: .diagnose,
+                        onboardingState: .diagnosing,
+                        summary: "保存飞书访问配置失败",
+                        detail: error.localizedDescription,
+                        logSummary: .some(error.localizedDescription)
+                    )
+                }
+            }
+        }
+    }
+
     func refreshStatus() {
         guard !isRefreshing else { return }
 
         let environment = ChannelCommandSupport.commandEnvironment(base: environmentProvider())
         let runCommand = runCommand
         let currentSetupMode = snapshot.setupMode
+        let currentScannedOwnerOpenID = snapshot.scannedOwnerOpenID
 
         isRefreshing = true
 
@@ -430,11 +624,22 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 runCommand: runCommand,
                 currentSetupMode: currentSetupMode
             )
+            let accessConfiguration = openClawBinaryPath.map {
+                Self.readAccessConfiguration(
+                    openClawBinaryPath: $0,
+                    environment: environment,
+                    runCommand: runCommand
+                )
+            } ?? .empty
 
             await MainActor.run {
                 self.isRefreshing = false
                 self.lastRefreshDate = Date()
                 self.snapshot = snapshot
+                self.loadedAccessConfiguration = accessConfiguration.replacingOwnerOpenIDCandidate(
+                    with: trimmedNonEmpty(currentScannedOwnerOpenID) ?? accessConfiguration.ownerOpenIDCandidate
+                )
+                self.syncAccessConfigurationDraft(from: self.loadedAccessConfiguration)
                 if !self.isOnboardingActive && self.activeAction == nil {
                     self.toggleIntent = snapshot.channelEnabled
                 }
@@ -990,82 +1195,22 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                     )
                 }
 
-                let dmAllowFrom = Self.mergeUniqueString(
-                    "*",
-                    into: Self.readStringArrayConfig(
-                        openClawBinaryPath: openClawBinaryPath,
-                        environment: environment,
-                        runCommand: runCommand,
-                        path: "channels.feishu.allowFrom"
-                    )
-                )
-
                 if let ownerOpenID = trimmedNonEmpty(context?.ownerOpenID) {
-                    try Self.writeJSONStringConfig(
+                    try Self.writeAccessConfiguration(
                         openClawBinaryPath: openClawBinaryPath,
                         environment: environment,
                         runCommand: runCommand,
-                        path: "channels.feishu.dmPolicy",
-                        value: "open",
-                        log: { line in await MainActor.run { self.appendLogLine(line) } }
-                    )
-
-                    let allowFrom = Self.mergeUniqueString(ownerOpenID, into: dmAllowFrom)
-                    try Self.writeJSONConfig(
-                        openClawBinaryPath: openClawBinaryPath,
-                        environment: environment,
-                        runCommand: runCommand,
-                        path: "channels.feishu.allowFrom",
-                        value: allowFrom,
-                        log: { line in await MainActor.run { self.appendLogLine(line) } }
-                    )
-                } else {
-                    try Self.writeJSONStringConfig(
-                        openClawBinaryPath: openClawBinaryPath,
-                        environment: environment,
-                        runCommand: runCommand,
-                        path: "channels.feishu.dmPolicy",
-                        value: "open",
-                        log: { line in await MainActor.run { self.appendLogLine(line) } }
-                    )
-                    try Self.writeJSONConfig(
-                        openClawBinaryPath: openClawBinaryPath,
-                        environment: environment,
-                        runCommand: runCommand,
-                        path: "channels.feishu.allowFrom",
-                        value: dmAllowFrom,
+                        configuration: FeishuAccessConfiguration(
+                            dmMode: .specified,
+                            dmOpenIDs: [ownerOpenID],
+                            groupMode: .specified,
+                            groupOpenIDs: [ownerOpenID],
+                            ownerOpenIDCandidate: ownerOpenID,
+                            hasAdvancedGroupRules: false
+                        ),
                         log: { line in await MainActor.run { self.appendLogLine(line) } }
                     )
                 }
-
-                try Self.writeJSONStringConfig(
-                    openClawBinaryPath: openClawBinaryPath,
-                    environment: environment,
-                    runCommand: runCommand,
-                    path: "channels.feishu.groupPolicy",
-                    value: "open",
-                    log: { line in await MainActor.run { self.appendLogLine(line) } }
-                )
-
-                var groups = Self.readJSONObjectConfig(
-                    openClawBinaryPath: openClawBinaryPath,
-                    environment: environment,
-                    runCommand: runCommand,
-                    path: "channels.feishu.groups"
-                ) ?? [:]
-                var wildcard = groups["*"] as? [String: Any] ?? [:]
-                wildcard["enabled"] = true
-                wildcard["requireMention"] = false
-                groups["*"] = wildcard
-
-                try Self.writeJSONConfig(
-                    openClawBinaryPath: openClawBinaryPath,
-                    environment: environment,
-                    runCommand: runCommand,
-                    path: "channels.feishu.groups",
-                    value: groups,
-                    log: { line in await MainActor.run { self.appendLogLine(line) } }
-                )
 
                 try Self.writeJSONStringConfig(
                     openClawBinaryPath: openClawBinaryPath,
@@ -1238,6 +1383,34 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             guard isBusy else { return nil }
             return Self.parseLiveProgressStatus(from: lastCommandOutput)
         }
+    }
+
+    private var currentDraftAccessConfiguration: FeishuAccessConfiguration {
+        FeishuAccessConfiguration(
+            dmMode: dmAccessMode,
+            dmOpenIDs: Self.parseOpenIDs(from: dmOpenIDsText),
+            groupMode: groupAccessMode,
+            groupOpenIDs: Self.parseOpenIDs(from: groupOpenIDsText),
+            ownerOpenIDCandidate: loadedAccessConfiguration.ownerOpenIDCandidate,
+            hasAdvancedGroupRules: loadedAccessConfiguration.hasAdvancedGroupRules
+        )
+    }
+
+    private func syncAccessConfigurationDraft(from configuration: FeishuAccessConfiguration) {
+        loadedAccessConfiguration = configuration
+        hasAdvancedGroupRules = configuration.hasAdvancedGroupRules
+        dmAccessMode = configuration.dmMode
+        dmOpenIDsText = Self.draftOpenIDText(
+            mode: configuration.dmMode,
+            openIDs: configuration.dmOpenIDs,
+            ownerOpenIDCandidate: configuration.ownerOpenIDCandidate
+        )
+        groupAccessMode = configuration.groupMode
+        groupOpenIDsText = Self.draftOpenIDText(
+            mode: configuration.groupMode,
+            openIDs: configuration.groupOpenIDs,
+            ownerOpenIDCandidate: configuration.ownerOpenIDCandidate
+        )
     }
 
     private nonisolated static func makeStatusSnapshot(
@@ -1428,7 +1601,7 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 reusableConfiguredBotAvailable: reusableConfiguredBotAvailable,
                 setupMode: resolvedSetupMode,
                 summary: "Feishu 已启用并可用",
-                detail: "Feishu Channel 已在 runtime 中运行，Clawbar 也已写入 `dmPolicy=open`、`tools.profile=full` 与 `tools.sessions.visibility=all`。若要打开文档、日历、群消息等完整用户态能力，请回到飞书机器人对话里发送 `/feishu auth` 完成授权。",
+                detail: "Feishu Channel 已在 runtime 中运行，Clawbar 会按当前保存的 DM / 群聊权限配置触发机器人。若要打开文档、日历、群消息等完整用户态能力，请回到飞书机器人对话里发送 `/feishu auth` 完成授权。",
                 logSummary: .some(logSummary(from: infoResult.output))
             )
         }
@@ -1627,13 +1800,14 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                     "$ openclaw config set tools.sessions.visibility",
                     "$ openclaw config set tools.profile",
                     "$ openclaw config set channels.feishu.groups",
+                    "$ openclaw config set channels.feishu.groupAllowFrom",
                     "$ openclaw config set channels.feishu.groupPolicy",
                     "$ openclaw config set channels.feishu.allowFrom",
                     "$ openclaw config set channels.feishu.dmPolicy",
                 ],
                 (
                     "正在补齐默认权限配置",
-                    "Clawbar 正在把 Feishu 群聊默认权限和 OpenClaw 工具权限写回配置。"
+                    "Clawbar 正在把 Feishu 的 DM、群聊权限和 OpenClaw 工具权限写回配置。"
                 )
             ),
             (
@@ -1730,6 +1904,70 @@ final class OpenClawFeishuChannelManager: ObservableObject {
         return loaded && status == "running"
     }
 
+    private nonisolated static func readAccessConfiguration(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner
+    ) -> FeishuAccessConfiguration {
+        let dmPolicy = readStringConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.dmPolicy"
+        )
+        let allowFrom = readStringArrayConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.allowFrom"
+        )
+        let groupPolicy = readStringConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.groupPolicy"
+        )
+        let configuredGroupAllowFrom = readStringArrayConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.groupAllowFrom"
+        )
+        let groups = readJSONObjectConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.groups"
+        ) ?? [:]
+
+        let dmOpenIDs = allowFrom.filter { $0 != "*" }
+        let groupAllowFrom = configuredGroupAllowFrom.isEmpty ? dmOpenIDs : configuredGroupAllowFrom.filter { $0 != "*" }
+
+        let dmMode: FeishuAccessMode =
+            dmPolicy == "open" && allowFrom.contains("*")
+            ? .everyone
+            : .specified
+        let groupMode: FeishuAccessMode =
+            groupPolicy == "open"
+            ? .everyone
+            : .specified
+
+        let ownerOpenIDCandidate = resolveOwnerOpenIDCandidate(
+            dmOpenIDs: dmOpenIDs,
+            groupOpenIDs: groupAllowFrom
+        )
+        let hasAdvancedGroupRules = groups.keys.contains { $0 != "*" }
+
+        return FeishuAccessConfiguration(
+            dmMode: dmMode,
+            dmOpenIDs: dmOpenIDs,
+            groupMode: groupMode,
+            groupOpenIDs: groupAllowFrom,
+            ownerOpenIDCandidate: ownerOpenIDCandidate,
+            hasAdvancedGroupRules: hasAdvancedGroupRules
+        )
+    }
+
     private nonisolated static func readBooleanConfig(
         openClawBinaryPath: String,
         environment: [String: String],
@@ -1787,6 +2025,49 @@ final class OpenClawFeishuChannelManager: ObservableObject {
             runCommand: runCommand,
             path: path
         ) as? [String: Any]
+    }
+
+    private nonisolated static func resolveOwnerOpenIDCandidate(
+        dmOpenIDs: [String],
+        groupOpenIDs: [String]
+    ) -> String? {
+        if dmOpenIDs.count == 1 {
+            return dmOpenIDs[0]
+        }
+        if groupOpenIDs.count == 1 {
+            return groupOpenIDs[0]
+        }
+        let overlap = Set(dmOpenIDs).intersection(groupOpenIDs)
+        if overlap.count == 1 {
+            return overlap.first
+        }
+        return nil
+    }
+
+    private nonisolated static func draftOpenIDText(
+        mode: FeishuAccessMode,
+        openIDs: [String],
+        ownerOpenIDCandidate: String?
+    ) -> String {
+        guard mode == .specified else { return "" }
+        let entries = openIDs.isEmpty
+            ? [ownerOpenIDCandidate].compactMap { trimmedNonEmpty($0) }
+            : openIDs
+        return entries.joined(separator: "\n")
+    }
+
+    private nonisolated static func parseOpenIDs(from text: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",\n\r")
+        var seen = Set<String>()
+        var ordered: [String] = []
+
+        for component in text.components(separatedBy: separators) {
+            guard let value = trimmedNonEmpty(component), !seen.contains(value) else { continue }
+            seen.insert(value)
+            ordered.append(value)
+        }
+
+        return ordered
     }
 
     private nonisolated static func readConfigValue(
@@ -1860,6 +2141,108 @@ final class OpenClawFeishuChannelManager: ObservableObject {
                 ]
             )
         }
+    }
+
+    private nonisolated static func writeAccessConfiguration(
+        openClawBinaryPath: String,
+        environment: [String: String],
+        runCommand: CommandRunner,
+        configuration: FeishuAccessConfiguration,
+        log: @escaping @Sendable (String) async -> Void
+    ) throws {
+        switch configuration.dmMode {
+        case .everyone:
+            try writeJSONStringConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.dmPolicy",
+                value: "open",
+                log: log
+            )
+            try writeJSONConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.allowFrom",
+                value: ["*"],
+                log: log
+            )
+        case .specified:
+            try writeJSONStringConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.dmPolicy",
+                value: "allowlist",
+                log: log
+            )
+            try writeJSONConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.allowFrom",
+                value: configuration.dmOpenIDs,
+                log: log
+            )
+        }
+
+        switch configuration.groupMode {
+        case .everyone:
+            try writeJSONStringConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.groupPolicy",
+                value: "open",
+                log: log
+            )
+            try writeJSONConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.groupAllowFrom",
+                value: [],
+                log: log
+            )
+        case .specified:
+            try writeJSONStringConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.groupPolicy",
+                value: "allowlist",
+                log: log
+            )
+            try writeJSONConfig(
+                openClawBinaryPath: openClawBinaryPath,
+                environment: environment,
+                runCommand: runCommand,
+                path: "channels.feishu.groupAllowFrom",
+                value: configuration.groupOpenIDs,
+                log: log
+            )
+        }
+
+        var groups = readJSONObjectConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.groups"
+        ) ?? [:]
+        var wildcard = groups["*"] as? [String: Any] ?? [:]
+        wildcard["enabled"] = true
+        wildcard["requireMention"] = true
+        groups["*"] = wildcard
+
+        try writeJSONConfig(
+            openClawBinaryPath: openClawBinaryPath,
+            environment: environment,
+            runCommand: runCommand,
+            path: "channels.feishu.groups",
+            value: groups,
+            log: log
+        )
     }
 
     private nonisolated static func mergeUniqueString(_ value: String, into existing: [String]) -> [String] {

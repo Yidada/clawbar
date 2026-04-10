@@ -269,6 +269,56 @@ struct ChannelsManagementView: View {
                 .tint(ChannelKind.feishu.accentColor)
                 .disabled(feishuSetupActionDisabled)
 
+                feishuAccessConfigurationSection(
+                    title: "DM 配置",
+                    summary: feishuManager.dmConfigurationSummary,
+                    mode: feishuDMModeBinding,
+                    openIDsText: feishuDMOpenIDsBinding,
+                    specifiedDescription: "默认使用“指定人”模式；如果已识别到当前绑定人的 Open ID，Clawbar 会自动预填。",
+                    everyoneDescription: "所有人都可以直接私信机器人。",
+                    inputPrompt: "输入允许私信机器人的 Open ID，支持逗号或换行分隔。"
+                )
+
+                feishuAccessConfigurationSection(
+                    title: "群聊配置",
+                    summary: feishuManager.groupConfigurationSummary,
+                    mode: feishuGroupModeBinding,
+                    openIDsText: feishuGroupOpenIDsBinding,
+                    specifiedDescription: "默认使用“指定人 @机器人”模式；只会响应指定人 @机器人的消息。",
+                    everyoneDescription: "会响应任何人 @机器人的消息。",
+                    inputPrompt: "输入允许在群里 @机器人的 Open ID，支持逗号或换行分隔。",
+                    footer: "当前版本统一要求 @机器人，避免群内刷屏。"
+                )
+
+                if feishuManager.hasAdvancedGroupRules {
+                    Text("检测到更细粒度的群规则；本页只管理全局默认模式，不会清除已有群级覆盖。")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let accessError = feishuManager.accessConfigurationError {
+                    Text(accessError)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack(spacing: 10) {
+                    Button("保存配置") {
+                        feishuManager.saveAccessConfiguration()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(ChannelKind.feishu.accentColor)
+                    .disabled(feishuAccessConfigurationDisabled)
+
+                    Button("恢复当前配置") {
+                        feishuManager.resetAccessConfigurationDraft()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(feishuAccessConfigurationResetDisabled)
+                }
+
                 if shouldShowFeishuLogs {
                     DisclosureGroup("展开日志", isExpanded: $feishuLogsExpanded) {
                         ScrollView {
@@ -548,12 +598,117 @@ struct ChannelsManagementView: View {
 
         return wechatManager.isFlowActive ? wechatEnabled : false
     }
+
+    private var feishuDMModeBinding: Binding<FeishuAccessMode> {
+        Binding(
+            get: { feishuManager.dmAccessMode },
+            set: { feishuManager.dmAccessMode = $0 }
+        )
+    }
+
+    private var feishuDMOpenIDsBinding: Binding<String> {
+        Binding(
+            get: { feishuManager.dmOpenIDsText },
+            set: { feishuManager.dmOpenIDsText = $0 }
+        )
+    }
+
+    private var feishuGroupModeBinding: Binding<FeishuAccessMode> {
+        Binding(
+            get: { feishuManager.groupAccessMode },
+            set: { feishuManager.groupAccessMode = $0 }
+        )
+    }
+
+    private var feishuGroupOpenIDsBinding: Binding<String> {
+        Binding(
+            get: { feishuManager.groupOpenIDsText },
+            set: { feishuManager.groupOpenIDsText = $0 }
+        )
+    }
+
+    private var feishuAccessConfigurationDisabled: Bool {
+        !feishuManager.canEditAccessConfiguration
+    }
+
+    private var feishuAccessConfigurationResetDisabled: Bool {
+        feishuAccessConfigurationDisabled || !feishuManager.hasUnsavedAccessConfigurationChanges
+    }
+
     private var feishuStatusHeadline: String {
         feishuManager.displaySummary
     }
 
     private var feishuStatusDetail: String {
         feishuManager.displayDetail
+    }
+
+    private func feishuAccessConfigurationSection(
+        title: String,
+        summary: String,
+        mode: Binding<FeishuAccessMode>,
+        openIDsText: Binding<String>,
+        specifiedDescription: String,
+        everyoneDescription: String,
+        inputPrompt: String,
+        footer: String? = nil
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.secondaryText)
+
+            Text("当前：\(summary)")
+                .font(.subheadline.weight(.medium))
+
+            if feishuManager.snapshot.channelBound {
+                Picker(title, selection: mode) {
+                    ForEach(FeishuAccessMode.allCases) { value in
+                        Text(value.title).tag(value)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(feishuAccessConfigurationDisabled)
+
+                Text(mode.wrappedValue == .specified ? specifiedDescription : everyoneDescription)
+                    .font(.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if mode.wrappedValue == .specified {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(inputPrompt)
+                            .font(.caption)
+                            .foregroundStyle(theme.secondaryText)
+
+                        TextEditor(text: openIDsText)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(minHeight: 76)
+                            .padding(8)
+                            .background(theme.inputBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(theme.inputBorder, lineWidth: 1)
+                            )
+                            .disabled(feishuAccessConfigurationDisabled)
+                    }
+                }
+            } else {
+                Text("请先完成机器人绑定，再保存 DM / 群聊访问配置。")
+                    .font(.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let footer {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .background(theme.mutedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func channelShell<Content: View>(

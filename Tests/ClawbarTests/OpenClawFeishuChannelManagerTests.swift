@@ -154,25 +154,25 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
                 .result(.init(output: "", exitStatus: 1, timedOut: false)),
                 .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.allowFrom", "--json"]): [
-                .result(.init(output: "[]\n", exitStatus: 0, timedOut: false)),
-            ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groups", "--json"]): [
                 .result(.init(output: "{}\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.domain", "\"lark\"", "--strict-json"]): [
                 .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"open\"", "--strict-json"]): [
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"]): [
                 .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"*\",\"ou_owner\"]", "--strict-json"]): [
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"ou_owner\"]", "--strict-json"]): [
                 .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"open\"", "--strict-json"]): [
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"allowlist\"", "--strict-json"]): [
                 .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true,\"requireMention\":false}}", "--strict-json"]): [
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true,\"requireMention\":true}}", "--strict-json"]): [
                 .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "tools.profile", "\"full\"", "--strict-json"]): [
@@ -220,10 +220,11 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
 
         let commands = runner.recordedCommands()
         XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.domain", "\"lark\"", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"open\"", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"*\",\"ou_owner\"]", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"open\"", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true,\"requireMention\":false}}", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"ou_owner\"]", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"allowlist\"", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true,\"requireMention\":true}}", "--strict-json"])))
         XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "tools.profile", "\"full\"", "--strict-json"])))
         XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "tools.sessions.visibility", "\"all\"", "--strict-json"])))
         XCTAssertEqual(streaming.command, "npx -y @larksuite/openclaw-lark install --app 'cli_new:secret_new'")
@@ -231,7 +232,7 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
         XCTAssertTrue(manager.lastCommandOutput.contains("/feishu auth"))
     }
 
-    func testManualInstallSuccessAppliesOpenGroupDefaultsBeforeEnable() async {
+    func testManualInstallSuccessSkipsSpecifiedDefaultsWithoutOwnerOpenID() async {
         let runner = RecordingCommandRunner([
             MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
                 .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
@@ -268,24 +269,6 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
                 .result(.init(output: "", exitStatus: 1, timedOut: false)),
                 .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
             ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groups", "--json"]): [
-                .result(.init(output: "{}\n", exitStatus: 0, timedOut: false)),
-            ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.allowFrom", "--json"]): [
-                .result(.init(output: "[]\n", exitStatus: 0, timedOut: false)),
-            ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"open\"", "--strict-json"]): [
-                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
-            ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"*\"]", "--strict-json"]): [
-                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
-            ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"open\"", "--strict-json"]): [
-                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
-            ],
-            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true,\"requireMention\":false}}", "--strict-json"]): [
-                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
-            ],
             MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "tools.profile", "\"full\"", "--strict-json"]): [
                 .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
             ],
@@ -319,16 +302,181 @@ final class OpenClawFeishuChannelManagerTests: XCTestCase {
         await waitUntilIdle(for: manager, timeoutNanoseconds: 2_000_000_000)
 
         let commands = runner.recordedCommands()
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"open\"", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"*\"]", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"open\"", "--strict-json"])))
-        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", "{\"*\":{\"enabled\":true,\"requireMention\":false}}", "--strict-json"])))
         XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "tools.profile", "\"full\"", "--strict-json"])))
         XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "tools.sessions.visibility", "\"all\"", "--strict-json"])))
+        XCTAssertFalse(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"])))
         XCTAssertFalse(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"])))
         XCTAssertEqual(streaming.command, "npx -y @larksuite/openclaw-lark install --app 'cli_manual:secret_manual'")
         XCTAssertEqual(manager.snapshot.stage, .ready)
         XCTAssertTrue(manager.lastCommandOutput.contains("/feishu auth"))
+    }
+
+    func testRefreshStatusLoadsConfiguredAccessModes() async {
+        let runner = RecordingCommandRunner([
+            MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): [
+                .result(.init(output: feishuChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): [
+                .result(.init(output: feishuChannelsListOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-lark", "--json"]): [
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
+                .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): [
+                .result(.init(output: "true\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.dmPolicy", "--json"]): [
+                .result(.init(output: "\"allowlist\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.allowFrom", "--json"]): [
+                .result(.init(output: "[\"ou_owner\",\"ou_peer\"]\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groupPolicy", "--json"]): [
+                .result(.init(output: "\"allowlist\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groupAllowFrom", "--json"]): [
+                .result(.init(output: "[\"ou_owner\"]\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groups", "--json"]): [
+                .result(.init(output: "{\"*\":{\"enabled\":true,\"requireMention\":true},\"oc_team\":{\"enabled\":true,\"requireMention\":false}}\n", exitStatus: 0, timedOut: false)),
+            ],
+        ])
+
+        let manager = OpenClawFeishuChannelManager(
+            environmentProvider: { [:] },
+            runCommand: runner.runner
+        )
+
+        manager.refreshStatus()
+        await waitUntilIdle(for: manager)
+
+        XCTAssertEqual(manager.dmAccessMode, .specified)
+        XCTAssertEqual(manager.dmOpenIDsText, "ou_owner\nou_peer")
+        XCTAssertEqual(manager.groupAccessMode, .specified)
+        XCTAssertEqual(manager.groupOpenIDsText, "ou_owner")
+        XCTAssertTrue(manager.hasAdvancedGroupRules)
+        XCTAssertTrue(manager.displayDetail.contains("DM：指定人可私信（2 个 Open ID）"))
+    }
+
+    func testSaveAccessConfigurationWritesAllowlistsAndKeepsGroupOverrides() async {
+        let preservedGroups = #"{"*":{"enabled":true,"requireMention":true},"oc_team":{"enabled":true,"requireMention":false}}"#
+        let updatedGroups = #"{"*":{"enabled":true,"requireMention":true},"oc_team":{"enabled":true,"requireMention":false}}"#
+        let runner = RecordingCommandRunner([
+            MockCommand("/bin/zsh", ["-lc", "command -v openclaw"]): [
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/openclaw\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/zsh", ["-lc", "command -v npx"]): [
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "/opt/homebrew/bin/npx\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/bin/bash", ["-lc", "npx -y @larksuite/openclaw-lark info"]): [
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: installedInfoOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "status", "--json"]): [
+                .result(.init(output: feishuChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: feishuChannelsStatusOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["channels", "list", "--json"]): [
+                .result(.init(output: feishuChannelsListOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: feishuChannelsListOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["plugins", "inspect", "openclaw-lark", "--json"]): [
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
+                .result(.init(output: feishuPluginInspectOutput, exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appId", "--json"]): [
+                .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\"cli_saved\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.appSecret", "--json"]): [
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\"***\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.enabled", "--json"]): [
+                .result(.init(output: "true\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "true\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.dmPolicy", "--json"]): [
+                .result(.init(output: "\"open\"\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\"allowlist\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.allowFrom", "--json"]): [
+                .result(.init(output: "[\"*\"]\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "[\"ou_owner\",\"ou_peer\"]\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groupPolicy", "--json"]): [
+                .result(.init(output: "\"open\"\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\"allowlist\"\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groupAllowFrom", "--json"]): [
+                .result(.init(output: "[]\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "[\"ou_owner\"]\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "get", "channels.feishu.groups", "--json"]): [
+                .result(.init(output: "\(preservedGroups)\n", exitStatus: 0, timedOut: false)),
+                .result(.init(output: "\(updatedGroups)\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"ou_owner\",\"ou_peer\"]", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"allowlist\"", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", updatedGroups, "--strict-json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+            MockCommand("/opt/homebrew/bin/openclaw", ["gateway", "restart", "--json"]): [
+                .result(.init(output: "{ \"ok\": true }\n", exitStatus: 0, timedOut: false)),
+            ],
+        ])
+
+        let manager = OpenClawFeishuChannelManager(
+            environmentProvider: { [:] },
+            runCommand: runner.runner
+        )
+
+        manager.refreshStatus()
+        await waitUntilIdle(for: manager)
+
+        manager.dmAccessMode = .specified
+        manager.dmOpenIDsText = "ou_owner\nou_peer"
+        manager.groupAccessMode = .specified
+        manager.groupOpenIDsText = "ou_owner"
+        manager.saveAccessConfiguration()
+        await waitUntilIdle(for: manager, timeoutNanoseconds: 2_000_000_000)
+
+        let commands = runner.recordedCommands()
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.dmPolicy", "\"allowlist\"", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.allowFrom", "[\"ou_owner\",\"ou_peer\"]", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupPolicy", "\"allowlist\"", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groupAllowFrom", "[\"ou_owner\"]", "--strict-json"])))
+        XCTAssertTrue(commands.contains(MockCommand("/opt/homebrew/bin/openclaw", ["config", "set", "channels.feishu.groups", updatedGroups, "--strict-json"])))
+        XCTAssertTrue(manager.lastCommandOutput.contains("groupAllowFrom"))
+        XCTAssertNil(manager.accessConfigurationError)
     }
 
     func testCancelQRCodeFlowClearsBusyState() async {

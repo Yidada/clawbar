@@ -94,6 +94,13 @@ In GitHub:
    - `APPLE_NOTARY_ISSUER_ID`
    - `APPLE_NOTARY_API_KEY_BASE64`
 
+Environment protection rules must also allow both deployment sources used by this repository:
+
+- `main` branch, for `package-main.yml`
+- `v*` tags, for `release-app.yml`
+
+If `release-signing` only allows `main` or selected branches, tag-driven releases will be rejected before the reusable packaging workflow starts.
+
 For a fully automatic `main` packaging flow, do not add required reviewers to the environment.
 
 ## GitHub branch safety

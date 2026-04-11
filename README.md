@@ -118,6 +118,7 @@ GitHub Actions now supports two packaging paths from the same signing setup:
 - `push` of `v*` tags: validate `version.env` and `CHANGELOG.md`, then publish the versioned notarized DMG to GitHub Releases
 
 Both workflows read secrets from the GitHub Environment named `release-signing`, and both now delegate to the same reusable packaging workflow so the signing, notarization, DMG-only upload, and release behavior stay aligned.
+That environment must allow deployments from both `main` and `v*` tags, or the release job will be rejected before packaging starts.
 
 Homebrew cask publication is planned, but not yet wired in this repository. For now, GitHub Releases DMG remains the only public install channel.
 

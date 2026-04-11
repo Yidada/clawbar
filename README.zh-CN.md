@@ -118,6 +118,7 @@ GitHub Actions 现在分成两条打包路径，复用同一套签名配置：
 - 推送 `v*` tag 后：先校验 `version.env` 与 `CHANGELOG.md`，再把带明确版本号的 notarized DMG 发布到 GitHub Releases
 
 这两条 workflow 都从 GitHub Environment `release-signing` 读取 secrets，并且统一只对外产出 `.dmg`。
+这个 environment 必须同时允许 `main` 和 `v*` tag 的 deployment，否则 release job 会在真正执行打包前就被 GitHub 拒绝。
 
 Homebrew Cask 还在规划阶段，当前仓库暂未接入 tap 发布。现阶段唯一对外安装入口仍然是 GitHub Releases 上的 DMG。
 

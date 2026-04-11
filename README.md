@@ -83,6 +83,12 @@ For unsigned local packaging, use `Scripts/package_app.sh`. The default output i
 OUTPUT_FORMAT=dmg ./Scripts/package_app.sh
 ```
 
+To regenerate the committed app and menu bar icon assets from the source artwork under `Resources/icons/`, run:
+
+```bash
+swift Scripts/generate_logo_assets.swift
+```
+
 For release preflight, run:
 
 ```bash

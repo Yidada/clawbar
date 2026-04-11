@@ -33,8 +33,7 @@ struct ClawbarApp: App {
                 applicationManagementRouter: applicationManagementRouter
             )
         } label: {
-            Label(configuration.menuBarTitle, systemImage: configuration.systemImageName)
-                .labelStyle(.iconOnly)
+            Image(nsImage: ClawbarMenuBarIcon.templateImage)
                 .accessibilityLabel(Text(configuration.menuBarTitle))
         }
         .menuBarExtraStyle(.window)

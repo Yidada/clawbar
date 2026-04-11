@@ -7,7 +7,6 @@ final class AppConfigurationTests: XCTestCase {
 
         XCTAssertEqual(configuration.appName, "Clawbar")
         XCTAssertEqual(configuration.menuBarTitle, "Clawbar")
-        XCTAssertEqual(configuration.systemImageName, "hand.wave.fill")
         XCTAssertEqual(configuration.menuInstalledTitle, "OpenClaw")
         XCTAssertEqual(configuration.menuLoadingSubtitle, "正在读取本机状态…")
         XCTAssertEqual(configuration.menuMissingTitle, "OpenClaw 未安装")

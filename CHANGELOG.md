@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — Unreleased
+## 0.0.1 — 2026-04-11
 
 ### Highlights
 - Add explicit release metadata with `version.env` and changelog-driven release validation.

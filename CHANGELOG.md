@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.2 — 2026-04-11
+
+### Documentation
+- Document that the `release-signing` GitHub environment tag is required on the `package-signed-dmg` reusable workflow for secrets to be available during signing and notarization.
+
 ## 0.0.1 — 2026-04-11
 
 ### Highlights

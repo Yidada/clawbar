@@ -6,7 +6,6 @@ final class MenuContentModelTests: XCTestCase {
         let configuration = AppConfiguration(
             appName: "Test",
             menuBarTitle: "Bar",
-            systemImageName: "star",
             menuInstalledTitle: "Installed",
             menuLoadingSubtitle: "Loading",
             menuMissingTitle: "Missing",

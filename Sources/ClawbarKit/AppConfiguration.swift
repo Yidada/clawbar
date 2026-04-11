@@ -1,7 +1,6 @@
 public struct AppConfiguration: Equatable, Sendable {
     public let appName: String
     public let menuBarTitle: String
-    public let systemImageName: String
     public let menuInstalledTitle: String
     public let menuLoadingSubtitle: String
     public let menuMissingTitle: String
@@ -27,7 +26,6 @@ public struct AppConfiguration: Equatable, Sendable {
     public init(
         appName: String,
         menuBarTitle: String,
-        systemImageName: String,
         menuInstalledTitle: String,
         menuLoadingSubtitle: String,
         menuMissingTitle: String,
@@ -52,7 +50,6 @@ public struct AppConfiguration: Equatable, Sendable {
     ) {
         self.appName = appName
         self.menuBarTitle = menuBarTitle
-        self.systemImageName = systemImageName
         self.menuInstalledTitle = menuInstalledTitle
         self.menuLoadingSubtitle = menuLoadingSubtitle
         self.menuMissingTitle = menuMissingTitle
@@ -80,7 +77,6 @@ public struct AppConfiguration: Equatable, Sendable {
         Self(
             appName: "Clawbar",
             menuBarTitle: "Clawbar",
-            systemImageName: "hand.wave.fill",
             menuInstalledTitle: "OpenClaw",
             menuLoadingSubtitle: "正在读取本机状态…",
             menuMissingTitle: "OpenClaw 未安装",

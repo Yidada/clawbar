@@ -10,6 +10,7 @@ FRAMEWORKS_DIR="$APP_ROOT/Contents/Frameworks"
 MACOS_DIR="$APP_ROOT/Contents/MacOS"
 RESOURCES_DIR="$APP_ROOT/Contents/Resources"
 INFO_PLIST_TEMPLATE="${INFO_PLIST_TEMPLATE:-$ROOT_DIR/Resources/Release/Clawbar-Info.plist}"
+APP_ICON_SOURCE="${APP_ICON_SOURCE:-$ROOT_DIR/Resources/Release/Clawbar.icns}"
 BUILD_CONFIG="${BUILD_CONFIG:-release}"
 BUNDLE_ID="${BUNDLE_ID:-com.yidada.clawbar}"
 VERSION_ENV_PATH="${VERSION_ENV_PATH:-$ROOT_DIR/version.env}"
@@ -177,6 +178,11 @@ echo "==> Updating Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP_ROOT/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_ROOT/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD" "$APP_ROOT/Contents/Info.plist"
+
+if [[ -f "$APP_ICON_SOURCE" ]]; then
+  echo "==> Copying app icon"
+  cp "$APP_ICON_SOURCE" "$RESOURCES_DIR/$(basename "$APP_ICON_SOURCE")"
+fi
 
 echo "==> Embedding Swift runtime libraries"
 /usr/bin/xcrun swift-stdlib-tool \

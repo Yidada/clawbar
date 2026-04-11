@@ -22,6 +22,11 @@ let package = Package(
             name: "Clawbar",
             dependencies: ["ClawbarKit"],
             path: "Sources/Clawbar",
+            resources: [
+                .copy("Resources/ClawbarLogoMaster.png"),
+                .copy("Resources/ClawbarMenuBarTemplate18.png"),
+                .copy("Resources/ClawbarMenuBarTemplate36.png"),
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]

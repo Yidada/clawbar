@@ -6,11 +6,17 @@ This document defines the safe split between repository-owned release automation
 
 Committed to the repository:
 
+- `version.env`
+- `CHANGELOG.md`
 - `.github/actions/setup-release-signing/action.yml`
 - `.github/workflows/package-signed-dmg.yml`
 - `.github/workflows/package-main.yml`
 - `.github/workflows/release-app.yml`
 - `Scripts/prepare_signing_assets.py`
+- `Scripts/validate_release_metadata.sh`
+- `Scripts/validate_changelog.sh`
+- `Scripts/extract_release_notes.sh`
+- `Scripts/check-release-assets.sh`
 - This document and the README updates that point to it
 
 Saved inside the repository but ignored by Git:
@@ -32,8 +38,8 @@ The repository now ignores `.local/`, so the project can keep machine-local sign
 
 Use two GitHub Actions paths:
 
-- `push` to `main`: build, test, sign, notarize, staple, validate, upload the DMG as a workflow artifact, and refresh a GitHub prerelease
-- `push` of `v*` tags: run the same signing chain and publish the DMG to GitHub Releases
+- `push` to `main`: validate `version.env`, build, test, sign, notarize, staple, validate, upload the DMG as a workflow artifact, and refresh a GitHub prerelease
+- `push` of `v*` tags: validate `version.env` + `CHANGELOG.md`, run the same signing chain, and publish the versioned DMG plus changelog-derived release notes to GitHub Releases
 
 That keeps `main` continuously packageable without turning every merge into a public release.
 
@@ -107,6 +113,6 @@ With that in place, every `push` to `main` effectively means a reviewed merge, a
 After the environment secrets are configured:
 
 - merging to `main` runs `Package Main App` and updates the `main-build` prerelease with the latest notarized DMG
-- pushing a `v*` tag runs `Release App`
+- pushing a `v*` tag that matches `version.env` runs `Release App`
 
 Both workflows now call the same reusable packaging workflow, which in turn uses the shared temporary keychain import action and the same notarization script. That keeps the signing implementation in one place.

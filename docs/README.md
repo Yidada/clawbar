@@ -23,6 +23,8 @@
   面向本地开发者的详细签名与 notarization 操作指引，包括证书准备、API key、脚本用法和常见故障排查。
 - `2026-04-07-main-branch-packaging-setup.md`
   说明哪些签名配置可以保存在项目内但必须被 Git 忽略，以及如何把同一套 secrets 安全接到 `main` 自动打包和 tag release workflow。
+- `2026-04-11-homebrew-cask-plan.md`
+  记录未来 Homebrew Cask/tap 接入的预期结构。当前仍未落地，正式安装入口继续以 GitHub Releases DMG 为准。
 
 ## 文档约定
 
@@ -31,5 +33,6 @@
 - 实现、命令入口或发布流程变化时，优先更新现有文档，不要继续堆“旧方案说明”
 - 涉及命令入口时，优先记录 `python3 Tests/Harness/clawbarctl.py ...`；`Scripts/*.sh` 只作为兼容 wrapper 或打包脚本补充说明
 - 变更如果影响仓库入口说明，要同时同步 `README.md`、`README.zh-CN.md`、`AGENTS.md` 或 `Tests/Harness/README.md`
+- 正式发布流程以 `version.env`、`CHANGELOG.md` 和相关 preflight 脚本为准，不要再写只依赖 tag 名称或日期版本的旧流程
 - OpenClaw 内部实现、CLI 参数、协议细节优先以 `References/openclaw/` 为准，不要把上游源码快照塞进 `docs/`
 - 截图、日志、诊断包、构建产物放到 `Artifacts/`，不要提交到 `docs/`

@@ -20,6 +20,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       build_number: ${{ steps.meta.outputs.build_number }}
       dmg_basename: ${{ steps.meta.outputs.dmg_basename }}
+      release_notes: ${{ steps.meta.outputs.release_notes }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -30,14 +31,22 @@ jobs:
         id: meta
         shell: bash
         run: |
+          source version.env
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          RELEASE_BUILD_NUMBER="$BUILD_NUMBER"
           DMG_BASENAME="Clawbar-${VERSION}"
+          bash Scripts/validate_release_metadata.sh "$TAG"
+          bash Scripts/validate_changelog.sh "$VERSION"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "build_number=$RELEASE_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "dmg_basename=$DMG_BASENAME" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_notes<<EOF"
+            bash Scripts/extract_release_notes.sh "$VERSION"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   release:
     needs: prepare
@@ -52,4 +61,4 @@ jobs:
       release-prerelease: false
       release-tag: ${{ needs.prepare.outputs.tag }}
       release-title: Clawbar ${{ needs.prepare.outputs.version }}
-      release-notes: Automated notarized release for commit ${{ github.sha }}.
+      release-notes: ${{ needs.prepare.outputs.release_notes }}

@@ -130,7 +130,17 @@ base64 -i /absolute/path/to/AuthKey_XXXXXX.p8 | pbcopy
 - `APPLE_NOTARY_API_KEY_BASE64`
   填 `AuthKey_XXXXXX.p8` 的 base64 内容
 
-## 第四步：本地先验证一次完整 notarization
+## 第四步：本地先做 release preflight，再验证完整 notarization
+
+如果这次是正式版本发布，先确认版本元数据和 changelog 一致：
+
+```bash
+bash Scripts/validate_release_metadata.sh
+bash Scripts/validate_changelog.sh "$(source version.env && echo "$MARKETING_VERSION")"
+bash Scripts/extract_release_notes.sh "$(source version.env && echo "$MARKETING_VERSION")"
+```
+
+如果只是验证签名链路、还没 finalize changelog，可以跳过 `validate_changelog.sh`。
 
 在把 secrets 交给 GitHub Actions 之前，建议先在本机验证一次。这样能把 Apple 后台问题和 CI 配置问题拆开。
 
@@ -208,7 +218,7 @@ codesign --verify --deep --strict --verbose=2 /Applications/Clawbar.app
 xcrun stapler validate /Applications/Clawbar.app
 ```
 
-## 推荐的明日执行顺序
+## 推荐的执行顺序
 
 明天 Apple 后台恢复正常之后，按这个顺序做，最省时间：
 
@@ -216,9 +226,10 @@ xcrun stapler validate /Applications/Clawbar.app
 2. 记下 `Key ID`、`Issuer ID`，下载 `.p8`
 3. 从钥匙串导出当前 `Developer ID Application` 证书为 `.p12`
 4. 把 `.p12` 和 `.p8` 各自转成 base64
-5. 先在本机执行一次 `./Scripts/sign_and_notarize.sh`
-6. 本地通过后，把 6 个 secrets 写进 GitHub
-7. push 一个 `v*` tag，观察 `Release App` workflow
+5. 如果是正式版本，先更新 `version.env` 和 `CHANGELOG.md`，并跑 release preflight
+6. 先在本机执行一次 `./Scripts/sign_and_notarize.sh`
+7. 本地通过后，把 6 个 secrets 写进 GitHub
+8. push 一个 `v*` tag，观察 `Release App` workflow
 
 ## 当前最可能遇到的阻塞
 

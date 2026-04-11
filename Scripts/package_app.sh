@@ -12,8 +12,18 @@ RESOURCES_DIR="$APP_ROOT/Contents/Resources"
 INFO_PLIST_TEMPLATE="${INFO_PLIST_TEMPLATE:-$ROOT_DIR/Resources/Release/Clawbar-Info.plist}"
 BUILD_CONFIG="${BUILD_CONFIG:-release}"
 BUNDLE_ID="${BUNDLE_ID:-com.yidada.clawbar}"
-APP_VERSION="${APP_VERSION:-$(date -u +"%Y.%m.%d")}"
-APP_BUILD="${APP_BUILD:-$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 1)}"
+VERSION_ENV_PATH="${VERSION_ENV_PATH:-$ROOT_DIR/version.env}"
+
+if [[ -f "$VERSION_ENV_PATH" ]]; then
+  # shellcheck disable=SC1090
+  source "$VERSION_ENV_PATH"
+fi
+
+DEFAULT_APP_VERSION="${MARKETING_VERSION:-$(date -u +"%Y.%m.%d")}"
+DEFAULT_APP_BUILD="${BUILD_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 1)}"
+
+APP_VERSION="${APP_VERSION:-$DEFAULT_APP_VERSION}"
+APP_BUILD="${APP_BUILD:-$DEFAULT_APP_BUILD}"
 GIT_COMMIT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 ZIP_BASENAME="${ZIP_BASENAME:-${PRODUCT_NAME}-${APP_VERSION}-${APP_BUILD}-${GIT_COMMIT}}"
 DMG_BASENAME="${DMG_BASENAME:-${PRODUCT_NAME}-${APP_VERSION}}"

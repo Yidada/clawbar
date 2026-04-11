@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`clawbar` is a Swift Package Manager macOS menu bar companion for installing, configuring, and operating a local OpenClaw setup. Shared app lifecycle and menu-state logic lives in `Sources/ClawbarKit`, while the app entry point, SwiftUI/AppKit integration, and OpenClaw management flows (install, Gateway, providers, channels, and TUI launch) live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`, and the unified local control and test harness lives in `Tests/Harness`. Developer scripts are in `Scripts/`, release resources are in `Resources/Release`, packaging outputs are written to `dist/`, run artifacts are written to `Artifacts/`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`. Project-local skills live under `.agents/skills/`.
+`clawbar` is a Swift Package Manager macOS menu bar companion for installing, configuring, and operating a local OpenClaw setup. Shared app lifecycle and menu-state logic lives in `Sources/ClawbarKit`, while the app entry point, SwiftUI/AppKit integration, and OpenClaw management flows (install, Gateway, providers, channels, and TUI launch) live in `Sources/Clawbar`. Tests are in `Tests/ClawbarTests`, and the unified local control and test harness lives in `Tests/Harness`. Developer scripts are in `Scripts/`, release resources are in `Resources/Release`, packaging outputs are written to `dist/`, run artifacts are written to `Artifacts/`, release metadata lives in `version.env` and `CHANGELOG.md`, and design notes or investigation logs belong in `docs/` using names like `2026-04-03-menubar-ui-investigation.md`. Project-local skills live under `.agents/skills/`.
 
 Machine-local signing material belongs under `.local/` inside the repo root when you need project-scoped secrets that must not be committed. Keep `.p12`, `.p8`, passwords, and generated secret files there, not in `docs/`, `Resources/Release/`, or tracked source directories.
 
@@ -30,6 +30,7 @@ Keep the repository entrypoint docs aligned with the current command surface and
 - `Tests/Harness/README.md` documents the `clawbarctl.py` command surface and artifact layout.
 - `docs/README.md` indexes durable project docs under `docs/`.
 - `AGENTS.md` captures repository-specific contributor and agent rules.
+- `version.env` and `CHANGELOG.md` are the release source of truth for versioning and release notes.
 
 When a change affects commands, packaging, test flows, or repo layout, update the relevant docs in the same change. Prefer editing the current canonical document over adding a second "new flow" note. Keep generated screenshots, logs, and diagnostics under `Artifacts/`, not in `docs/`.
 
@@ -53,11 +54,16 @@ Use the package root for all commands:
 - `OUTPUT_FORMAT=dmg ./Scripts/package_app.sh`: build a local `.app` and `.dmg` under `dist/`.
 - `./Scripts/sign_and_notarize.sh`: sign and notarize a local build after setting `SIGNING_IDENTITY` and the required Apple notary environment variables.
 - `python3 Scripts/prepare_signing_assets.py --source-dir <path> --output-dir .local/signing ...`: normalize local signing exports into ignored project-local files for `sign_and_notarize.sh` and GitHub Environment setup.
+- `bash Scripts/validate_release_metadata.sh`: validate `version.env` and, optionally, a release tag.
+- `bash Scripts/validate_changelog.sh <version>`: require a finalized top changelog section for a release version.
+- `bash Scripts/extract_release_notes.sh <version>`: print the release notes body for the requested version from `CHANGELOG.md`.
+- `bash Scripts/check-release-assets.sh [version|tag]`: assert the expected versioned DMG exists under `dist/`.
 
 Compatibility note:
 
 - `./Scripts/dev.sh`, `./Scripts/check_coverage.sh`, `./Scripts/smoke_test.sh`, and `./Scripts/test.sh` remain available as thin wrappers around `Tests/Harness/clawbarctl.py`.
 - `Scripts/package_app.sh` and `Scripts/sign_and_notarize.sh` are the canonical local packaging entrypoints and write artifacts under `dist/`.
+- Official releases are version/changelog-driven: `v<version>` tags must match `version.env`, and `CHANGELOG.md` must contain the finalized top section for that version.
 - Harness artifacts live under `Artifacts/Harness/Runs/<timestamp>-<label>/`, with the currently tracked app state stored at `Artifacts/Harness/State/app-state.json`.
 
 ## Coding Style & Naming Conventions

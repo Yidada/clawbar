@@ -75,10 +75,20 @@ Top-level `Scripts/dev.sh`, `Scripts/check_coverage.sh`, `Scripts/smoke_test.sh`
 
 ## Packaging and Release
 
+`version.env` is the source of truth for the release version, and `CHANGELOG.md` is the source of truth for release notes. Official `v<version>` tags must match `version.env`, and the matching changelog section must be finalized before you push the tag.
+
 For unsigned local packaging, use `Scripts/package_app.sh`. The default output is a zip; set `OUTPUT_FORMAT=app`, `dmg`, or `both` when you need a different artifact shape.
 
 ```bash
 OUTPUT_FORMAT=dmg ./Scripts/package_app.sh
+```
+
+For release preflight, run:
+
+```bash
+bash Scripts/validate_release_metadata.sh
+bash Scripts/validate_changelog.sh "$(source version.env && echo "$MARKETING_VERSION")"
+bash Scripts/extract_release_notes.sh "$(source version.env && echo "$MARKETING_VERSION")"
 ```
 
 For local signing and notarization validation, set `SIGNING_IDENTITY` and the required notary environment variables, then run:
@@ -105,9 +115,11 @@ The generated local env pins signing to `login.keychain-db` so local packaging d
 GitHub Actions now supports two packaging paths from the same signing setup:
 
 - `push` to `main`: run tests, sign, notarize, upload the DMG as a workflow artifact, and refresh the `main-build` GitHub prerelease
-- `push` of `v*` tags: run the release pipeline and publish the DMG to GitHub Releases
+- `push` of `v*` tags: validate `version.env` and `CHANGELOG.md`, then publish the versioned notarized DMG to GitHub Releases
 
 Both workflows read secrets from the GitHub Environment named `release-signing`, and both now delegate to the same reusable packaging workflow so the signing, notarization, DMG-only upload, and release behavior stay aligned.
+
+Homebrew cask publication is planned, but not yet wired in this repository. For now, GitHub Releases DMG remains the only public install channel.
 
 ## Docs
 
@@ -116,6 +128,7 @@ Both workflows read secrets from the GitHub Environment named `release-signing`,
 - [docs/2026-04-05-notarized-release-process.md](docs/2026-04-05-notarized-release-process.md) for the release pipeline and required GitHub secrets
 - [docs/2026-04-06-local-signing-guide.md](docs/2026-04-06-local-signing-guide.md) for local certificate, signing, and notarization steps
 - [docs/2026-04-07-main-branch-packaging-setup.md](docs/2026-04-07-main-branch-packaging-setup.md) for ignored local signing files and GitHub Environment setup
+- [docs/2026-04-11-homebrew-cask-plan.md](docs/2026-04-11-homebrew-cask-plan.md) for the deferred tap-ready Homebrew plan
 
 ## OpenClaw Reference Workflow
 

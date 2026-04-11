@@ -31,11 +31,12 @@ jobs:
         id: meta
         shell: bash
         run: |
-          DATE_VERSION="$(date -u +%Y.%m.%d)"
+          source version.env
+          bash Scripts/validate_release_metadata.sh
           BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
           SHORT_SHA="$(git rev-parse --short HEAD)"
           DMG_BASENAME="Clawbar-main-latest"
-          echo "version=$DATE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$MARKETING_VERSION" >> "$GITHUB_OUTPUT"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "dmg_basename=$DMG_BASENAME" >> "$GITHUB_OUTPUT"
@@ -48,7 +49,7 @@ jobs:
       app-version: ${{ needs.prepare.outputs.version }}
       app-build: ${{ needs.prepare.outputs.build_number }}
       dmg-basename: ${{ needs.prepare.outputs.dmg_basename }}
-      artifact-name: clawbar-main-${{ needs.prepare.outputs.short_sha }}
+      artifact-name: clawbar-main-${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short_sha }}
       artifact-retention-days: 14
       publish-release: true
       release-prerelease: true
@@ -56,5 +57,7 @@ jobs:
       release-title: Clawbar Main Build
       release-notes: |
         Automated notarized main build for commit ${{ github.sha }}.
+
+        Base release version: ${{ needs.prepare.outputs.version }}
 
         Asset: ${{ needs.prepare.outputs.dmg_basename }}.dmg

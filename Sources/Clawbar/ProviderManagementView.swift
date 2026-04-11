@@ -698,6 +698,19 @@ struct ProviderManagementView: View {
                 .textSelection(.enabled)
         }
     }
+
+    private func suggestionRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(manager.selectedProvider.accentColor)
+                .frame(width: 6, height: 6)
+                .padding(.top, 6)
+
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(theme.secondaryText)
+        }
+    }
 }
 
 private struct ProviderInputField: View {

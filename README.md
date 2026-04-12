@@ -41,6 +41,7 @@ swift run Clawbar
 - `Sources/Clawbar/` app entry point, SwiftUI/AppKit integration, and OpenClaw management flows
 - `Tests/ClawbarTests/` XCTest coverage for shared logic and grouped integration flows
 - `Tests/Harness/` harness entrypoint for the dev loop, smoke runs, integration suites, and diagnostics
+- `website/` standalone Next.js/Vercel landing site for product intro and DMG download
 - `docs/` current process notes and release documentation
 - `.agents/skills/` project-owned skills used by contributors and agents
 - `References/openclaw/` pinned upstream OpenClaw snapshot for integration details

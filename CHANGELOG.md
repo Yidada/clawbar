@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.3 — 2026-04-12
+
+### Improvements
+- Update app icon with a new blue claw design featuring a transparent background, properly cropped and exported at all required macOS icon sizes.
+
 ## 0.0.1 — 2026-04-11
 
 ### Highlights

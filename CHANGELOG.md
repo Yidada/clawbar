@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.4 — 2026-04-12
+
+### Bug Fixes
+- Fix app failing to launch by copying SPM resource bundles into the app bundle during packaging.
+
 ## 0.0.3 — 2026-04-12
 
 ### Improvements

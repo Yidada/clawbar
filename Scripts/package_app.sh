@@ -184,6 +184,12 @@ if [[ -f "$APP_ICON_SOURCE" ]]; then
   cp "$APP_ICON_SOURCE" "$RESOURCES_DIR/$(basename "$APP_ICON_SOURCE")"
 fi
 
+echo "==> Copying SPM resource bundles"
+PRIMARY_BUILD_DIR="$(build_path_for_arch "$PRIMARY_ARCH")/$BUILD_CONFIG"
+while IFS= read -r -d '' bundle; do
+  cp -R "$bundle" "$RESOURCES_DIR/"
+done < <(find -L "$PRIMARY_BUILD_DIR" -maxdepth 1 -name '*.bundle' -type d -print0)
+
 echo "==> Embedding Swift runtime libraries"
 /usr/bin/xcrun swift-stdlib-tool \
   --copy \

@@ -184,12 +184,12 @@ if [[ -f "$APP_ICON_SOURCE" ]]; then
   cp "$APP_ICON_SOURCE" "$RESOURCES_DIR/$(basename "$APP_ICON_SOURCE")"
 fi
 
-echo "==> Copying SPM resource bundles to app root"
+echo "==> Copying SPM resource bundles"
 PRIMARY_BUILD_DIR="$(build_path_for_arch "$PRIMARY_ARCH")/$BUILD_CONFIG"
 BUNDLE_COUNT=0
 while IFS= read -r -d '' bundle; do
-  cp -R "$bundle" "$APP_ROOT/"
-  echo "    $(basename "$bundle")"
+  cp -R "$bundle" "$RESOURCES_DIR/"
+  echo "    $(basename "$bundle") -> Contents/Resources/"
   BUNDLE_COUNT=$((BUNDLE_COUNT + 1))
 done < <(find -L "$PRIMARY_BUILD_DIR" -maxdepth 1 -name '*.bundle' -type d -print0)
 if (( BUNDLE_COUNT == 0 )); then

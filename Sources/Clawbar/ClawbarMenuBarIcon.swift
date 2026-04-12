@@ -6,6 +6,29 @@ enum ClawbarMenuBarIcon {
     private static let resourceName2x = "ClawbarMenuBarTemplate36"
     private static let fallbackSymbolName = "hand.wave.fill"
 
+    /// Finds the SPM resource bundle in both packaged `.app` and `swift run` contexts.
+    ///
+    /// SPM's generated `Bundle.module` uses `Bundle.main.bundleURL` which resolves to
+    /// the `.app` root directory. macOS codesign forbids placing bundles at the app root
+    /// ("unsealed contents"), so the packaging script copies them to `Contents/Resources/`.
+    /// This helper checks `Bundle.main.resourceURL` (Contents/Resources/) first, then
+    /// falls back to `Bundle.main.bundleURL` (works for `swift run` where SPM places
+    /// the bundle next to the executable).
+    private static let resourceBundle: Bundle? = {
+        let bundleName = "clawbar_Clawbar.bundle"
+        let searchURLs: [URL?] = [
+            Bundle.main.resourceURL,
+            Bundle.main.bundleURL,
+        ]
+        for case let base? in searchURLs {
+            let url = base.appendingPathComponent(bundleName)
+            if let bundle = Bundle(url: url) {
+                return bundle
+            }
+        }
+        return nil
+    }()
+
     @MainActor
     static var templateImage: NSImage {
         if let image = loadTemplateImage() {
@@ -47,7 +70,7 @@ enum ClawbarMenuBarIcon {
     }
 
     private static func loadRepresentation(named resourceName: String) -> NSBitmapImageRep? {
-        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "png") else {
+        guard let url = resourceBundle?.url(forResource: resourceName, withExtension: "png") else {
             return nil
         }
         return NSImageRep(contentsOf: url) as? NSBitmapImageRep

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.6 — 2026-04-12
+
+### Bug Fixes
+- Fix app launch crash caused by resource bundle placement incompatible with macOS codesign. SPM's `Bundle.module` only checks the app root, but codesign rejects unsealed contents there. Replace with a custom lookup that finds bundles in `Contents/Resources/`.
+
 ## 0.0.4 — 2026-04-12
 
 ### Bug Fixes

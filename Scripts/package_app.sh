@@ -184,11 +184,17 @@ if [[ -f "$APP_ICON_SOURCE" ]]; then
   cp "$APP_ICON_SOURCE" "$RESOURCES_DIR/$(basename "$APP_ICON_SOURCE")"
 fi
 
-echo "==> Copying SPM resource bundles"
+echo "==> Copying SPM resource bundles to app root"
 PRIMARY_BUILD_DIR="$(build_path_for_arch "$PRIMARY_ARCH")/$BUILD_CONFIG"
+BUNDLE_COUNT=0
 while IFS= read -r -d '' bundle; do
-  cp -R "$bundle" "$RESOURCES_DIR/"
+  cp -R "$bundle" "$APP_ROOT/"
+  echo "    $(basename "$bundle")"
+  BUNDLE_COUNT=$((BUNDLE_COUNT + 1))
 done < <(find -L "$PRIMARY_BUILD_DIR" -maxdepth 1 -name '*.bundle' -type d -print0)
+if (( BUNDLE_COUNT == 0 )); then
+  echo "    WARNING: No SPM resource bundles found in $PRIMARY_BUILD_DIR" >&2
+fi
 
 echo "==> Embedding Swift runtime libraries"
 /usr/bin/xcrun swift-stdlib-tool \

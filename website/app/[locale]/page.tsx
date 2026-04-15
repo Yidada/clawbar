@@ -21,7 +21,12 @@ export async function generateMetadata({ params }: LocalePageProps): Promise<Met
     return {};
   }
 
-  return getMetadata(locale);
+  return {
+    ...getMetadata(locale),
+    alternates: {
+      languages: Object.fromEntries(locales.map((l) => [l, `/${l}`])),
+    },
+  };
 }
 
 export default async function LocalePage({ params }: LocalePageProps) {

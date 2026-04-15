@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 import type { LocaleCode } from "../lib/site-content";
-import { getLocaleCopy, releaseInfo, siteCopy } from "../lib/site-content";
+import { getLocaleCopy, locales, releaseInfo, siteCopy } from "../lib/site-content";
 
 type LandingPageProps = {
   locale: LocaleCode;
@@ -14,8 +14,6 @@ export function LandingPage({ locale }: LandingPageProps) {
     return null;
   }
 
-  const alternateLocale: LocaleCode = locale === "en" ? "zh-CN" : "en";
-
   return (
     <div className="site-shell">
       <div className="page">
@@ -24,10 +22,10 @@ export function LandingPage({ locale }: LandingPageProps) {
             <a className="brand" href={`/${locale}`}>
               <div className="brand__mark">
                 <Image
-                  src="/assets/clawbar-icon.png"
+                  src="/assets/clawbar-logo.png"
                   alt="Clawbar icon"
-                  width={46}
-                  height={46}
+                  width={345}
+                  height={459}
                   priority
                 />
               </div>
@@ -38,12 +36,7 @@ export function LandingPage({ locale }: LandingPageProps) {
             </a>
 
             <nav className="locale-switcher" aria-label="Language switcher">
-              {(
-                [
-                  ["en", siteCopy.en.languageName],
-                  ["zh-CN", siteCopy["zh-CN"].languageName],
-                ] as const
-              ).map(([itemLocale, label]) => (
+              {locales.map((itemLocale) => (
                 <a
                   key={itemLocale}
                   className={itemLocale === locale ? "is-active" : undefined}
@@ -51,7 +44,7 @@ export function LandingPage({ locale }: LandingPageProps) {
                   hrefLang={itemLocale}
                   lang={itemLocale}
                 >
-                  {label}
+                  {siteCopy[itemLocale].languageName}
                 </a>
               ))}
             </nav>
@@ -60,19 +53,10 @@ export function LandingPage({ locale }: LandingPageProps) {
 
         <main lang={locale}>
           <section className="hero">
-            <div className="container hero__panel">
+            <div className="container hero__inner">
               <div>
-                <span className="eyebrow">{content.eyebrow}</span>
                 <h1>{content.title}</h1>
                 <p className="hero__lede">{content.summary}</p>
-
-                <div className="badge-row" aria-label="Release badges">
-                  {content.badges.map((badge) => (
-                    <span className="badge" key={badge}>
-                      {badge}
-                    </span>
-                  ))}
-                </div>
 
                 <div className="cta-row">
                   {content.heroLinks.map((link) => (
@@ -89,53 +73,23 @@ export function LandingPage({ locale }: LandingPageProps) {
                 </div>
               </div>
 
-              <div className="hero__aside">
-                <aside className="stat-card">
-                  <div className="stat-card__label">{content.releaseCardLabel}</div>
-                  <div className="stat-card__value">{releaseInfo.version}</div>
-                  <div className="stat-card__text">{content.releaseCardBody}</div>
-                </aside>
-
-                <aside className="shot-card">
-                  <div className="shot-card__header">
-                    <div>
-                      <div className="section__kicker">{content.shotEyebrow}</div>
-                      <h3>{content.shotTitle}</h3>
-                      <p>{content.shotBody}</p>
-                    </div>
-                    <a
-                      className="button button--secondary"
-                      href={`/${alternateLocale}`}
-                      lang={alternateLocale}
-                      hrefLang={alternateLocale}
-                    >
-                      {siteCopy[alternateLocale].languageName}
-                    </a>
-                  </div>
-
-                  <div className="shot-card__figure">
-                    <div className="shot-card__frame">
-                      <Image
-                        src="/assets/clawbar-smoke.png"
-                        alt="Clawbar menu screenshot"
-                        width={576}
-                        height={768}
-                        priority
-                      />
-                    </div>
-                  </div>
-                </aside>
+              <div className="hero__screenshot">
+                <div className="screenshot-frame">
+                  <Image
+                    src="/assets/clawbar-smoke.png"
+                    alt="Clawbar menu screenshot"
+                    width={576}
+                    height={768}
+                    priority
+                  />
+                </div>
               </div>
             </div>
           </section>
 
-          <section className="section">
+          <section className="features">
             <div className="container">
-              <div className="section__intro">
-                <div className="section__kicker">{content.sectionKicker}</div>
-                <h2>{content.sectionTitle}</h2>
-                <p>{content.sectionBody}</p>
-              </div>
+              <h2 className="features__title">{content.featuresTitle}</h2>
 
               <div className="feature-grid">
                 {content.features.map((feature, index) => (
@@ -146,38 +100,13 @@ export function LandingPage({ locale }: LandingPageProps) {
                   </article>
                 ))}
               </div>
-
-              <div className="workflow">
-                <article className="workflow-card">
-                  <div className="section__kicker">{releaseInfo.minMacOS}</div>
-                  <h3>{content.workflowTitle}</h3>
-                  <p>{content.workflowBody}</p>
-                </article>
-
-                <article className="workflow-card">
-                  <div className="workflow-list">
-                    {content.workflowSteps.map((step, index) => (
-                      <div className="workflow-item" key={step.title}>
-                        <span className="workflow-item__marker">{index + 1}</span>
-                        <div>
-                          <h4>{step.title}</h4>
-                          <p>{step.description}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              </div>
             </div>
           </section>
         </main>
 
         <footer className="footer">
-          <div className="container footer-card">
-            <div>
-              <strong>{content.footerTitle}</strong>
-              <p>{content.footerBody}</p>
-            </div>
+          <div className="container footer__inner">
+            <span>Clawbar {releaseInfo.version}</span>
 
             <div className="footer-links">
               {content.footerLinks.map((link) => (

@@ -34,4 +34,8 @@ Deploy from this directory with Vercel:
 vercel deploy -y
 ```
 
+For Git-based deployments, configure the Vercel project to use `website/` as the Root Directory and `main` as the Production Branch.
+
+Branch preview deployments should build from the same `website/` root directory as production.
+
 This site is intentionally separate from the Swift package root so the web stack and the macOS app tooling stay isolated.

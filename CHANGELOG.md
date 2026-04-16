@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.0.7 — 2026-04-16
+
+### Improvements
+- Lower the minimum supported macOS version from 14 to 13 so Clawbar launches correctly on Ventura.
+- Simplify Provider management with clearer status and configuration layout.
+- Remove redundant Channel and menu header summaries so the most important status stays visible.
+- Apply the latest upstream Feishu channel improvements for a smoother channel setup experience.
+- Refresh the app icon with the new blue claw design.
+
+### Website
+- Update the landing page release metadata and download links to point to the Clawbar 0.0.7 GitHub release.
+
 ## 0.0.6 — 2026-04-12
 
 ### Bug Fixes

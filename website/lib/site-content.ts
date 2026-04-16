@@ -31,12 +31,12 @@ type LocaleCopy = {
 };
 
 export const releaseInfo = {
-  version: "0.0.6",
-  tag: "v0.0.6",
+  version: "0.0.7",
+  tag: "v0.0.7",
   minMacOS: "macOS 13+",
   downloadUrl:
-    "https://github.com/Yidada/clawbar/releases/download/v0.0.6/Clawbar-0.0.6.dmg",
-  releaseUrl: "https://github.com/Yidada/clawbar/releases/tag/v0.0.6",
+    "https://github.com/Yidada/clawbar/releases/download/v0.0.7/Clawbar-0.0.7.dmg",
+  releaseUrl: "https://github.com/Yidada/clawbar/releases/tag/v0.0.7",
   repoUrl: "https://github.com/Yidada/clawbar",
 };
 
@@ -76,7 +76,7 @@ export const siteCopy: Record<LocaleCode, LocaleCopy> = {
     ],
     footerLinks: [
       { label: "Latest DMG", href: releaseInfo.downloadUrl },
-      { label: "Release v0.0.6", href: releaseInfo.releaseUrl },
+      { label: "Release v0.0.7", href: releaseInfo.releaseUrl },
       { label: "GitHub Repository", href: releaseInfo.repoUrl },
     ],
     metadataTitle: "Clawbar | The easiest way to use OpenClaw",
@@ -118,7 +118,7 @@ export const siteCopy: Record<LocaleCode, LocaleCopy> = {
     ],
     footerLinks: [
       { label: "最新 DMG", href: releaseInfo.downloadUrl },
-      { label: "v0.0.6 发布页", href: releaseInfo.releaseUrl },
+      { label: "v0.0.7 发布页", href: releaseInfo.releaseUrl },
       { label: "GitHub 仓库", href: releaseInfo.repoUrl },
     ],
     metadataTitle: "Clawbar | 用最简单的方式使用 OpenClaw",

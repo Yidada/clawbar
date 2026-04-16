@@ -46,7 +46,7 @@ struct OpenClawInstallView: View {
                 }
                 .background(.quaternary.opacity(0.2))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .onChange(of: installer.logText) { _, _ in
+                .onChange(of: installer.logText) { _ in
                     withAnimation(.easeOut(duration: 0.15)) {
                         proxy.scrollTo("log-bottom", anchor: .bottom)
                     }

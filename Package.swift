@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "clawbar",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(name: "ClawbarKit", targets: ["ClawbarKit"]),

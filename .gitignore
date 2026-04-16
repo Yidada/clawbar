@@ -2,5 +2,10 @@
 dist/
 Artifacts/
 .local/
+.claude/launch.json
 .claude/worktrees/
+website/.next/
+website/.vercel/
+website/node_modules/
+website/*.tsbuildinfo
 .DS_Store

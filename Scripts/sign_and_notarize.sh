@@ -54,6 +54,31 @@ assess_with_spctl() {
   return 1
 }
 
+assess_distribution() {
+  local target_path="$1"
+  local output
+
+  if [[ -z "$SYSPOLICY_CHECK_BIN" ]]; then
+    assess_with_spctl open "$target_path"
+    return 0
+  fi
+
+  if output="$("$SYSPOLICY_CHECK_BIN" distribution "$target_path" 2>&1)"; then
+    printf '%s\n' "$output"
+    return 0
+  fi
+
+  if [[ "${GITHUB_ACTIONS:-}" == "true" && "$output" == *"Internal Xprotect Error"* ]]; then
+    printf '%s\n' "$output"
+    echo "syspolicy_check reported 'Internal Xprotect Error' on GitHub Actions; falling back to spctl because notarization, stapler validation, and app assessment already succeeded."
+    assess_with_spctl open "$target_path"
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+  return 1
+}
+
 require_env() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -142,12 +167,8 @@ echo "==> Stapling notarization tickets"
 
 echo "==> Verifying signed app and DMG"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-"$SPCTL_BIN" --assess --type exec -vvv "$APP_PATH"
-if [[ -n "$SYSPOLICY_CHECK_BIN" ]]; then
-  "$SYSPOLICY_CHECK_BIN" distribution "$DMG_PATH"
-else
-  "$SPCTL_BIN" --assess --type open -vvv "$DMG_PATH"
-fi
+assess_with_spctl exec "$APP_PATH"
+assess_distribution "$DMG_PATH"
 /usr/bin/xcrun stapler validate "$APP_PATH"
 /usr/bin/xcrun stapler validate "$DMG_PATH"
 

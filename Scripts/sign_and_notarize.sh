@@ -15,6 +15,7 @@ fi
 
 DEFAULT_APP_VERSION="${MARKETING_VERSION:-$(date -u +"%Y.%m.%d")}"
 APP_VERSION="${APP_VERSION:-$DEFAULT_APP_VERSION}"
+BUILD_TIME_TAG="${BUILD_TIME_TAG:-$(date -u +"%H_%M_%S")}"
 DMG_BASENAME="${DMG_BASENAME:-${PRODUCT_NAME}-${APP_VERSION}}"
 DMG_PATH="$DIST_DIR/${DMG_BASENAME}.dmg"
 OUTPUT_FORMAT="${OUTPUT_FORMAT:-dmg}"
@@ -24,6 +25,7 @@ SIGNING_KEYCHAIN="${SIGNING_KEYCHAIN:-}"
 APPLE_NOTARY_API_KEY_PATH="${APPLE_NOTARY_API_KEY_PATH:-}"
 TEMP_API_KEY_PATH=""
 SPCTL_BIN="${SPCTL_BIN:-$(command -v spctl || true)}"
+SYSPOLICY_CHECK_BIN="$(command -v syspolicy_check || true)"
 
 cleanup() {
   if [[ -n "$TEMP_API_KEY_PATH" && -f "$TEMP_API_KEY_PATH" ]]; then
@@ -91,7 +93,7 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
 fi
 
 if [[ -z "$SPCTL_BIN" ]]; then
-  echo "spctl is required for signed artifact verification." >&2
+  echo "spctl is required for local verification but was not found on PATH." >&2
   exit 1
 fi
 
@@ -109,6 +111,7 @@ SIGN_WITH_TIMESTAMP=1 \
 OUTPUT_FORMAT="$OUTPUT_FORMAT" \
 DIST_DIR="$DIST_DIR" \
 APP_VERSION="$APP_VERSION" \
+BUILD_TIME_TAG="$BUILD_TIME_TAG" \
 DMG_BASENAME="$DMG_BASENAME" \
 "$ROOT_DIR/Scripts/package_app.sh"
 
@@ -139,8 +142,12 @@ echo "==> Stapling notarization tickets"
 
 echo "==> Verifying signed app and DMG"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-assess_with_spctl exec "$APP_PATH"
-assess_with_spctl open "$DMG_PATH"
+"$SPCTL_BIN" --assess --type exec -vvv "$APP_PATH"
+if [[ -n "$SYSPOLICY_CHECK_BIN" ]]; then
+  "$SYSPOLICY_CHECK_BIN" distribution "$DMG_PATH"
+else
+  "$SPCTL_BIN" --assess --type open -vvv "$DMG_PATH"
+fi
 /usr/bin/xcrun stapler validate "$APP_PATH"
 /usr/bin/xcrun stapler validate "$DMG_PATH"
 

@@ -1,0 +1,281 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+
+stages:
+  - test
+  - release
+
+default:
+  tags:
+    - macos-signing
+
+variables:
+  GIT_DEPTH: "0"
+  DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+  CLAWBAR_PACKAGE_NAME: clawbar
+
+test:
+  stage: test
+  script:
+    - xcodebuild -version
+    - swift --version
+    - swift test -v
+
+prepare_main_release:
+  stage: release
+  needs:
+    - test
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - |
+      set -euo pipefail
+
+      APP_VERSION="$(date -u +"%Y.%m.%d")"
+      APP_BUILD="${CI_PIPELINE_IID}"
+      RELEASE_TAG="main-${CI_PIPELINE_IID}"
+      RELEASE_NAME="Main ${CI_PIPELINE_IID}"
+      DMG_BASENAME="Clawbar-${APP_VERSION}-main-${CI_PIPELINE_IID}"
+      PACKAGE_VERSION="${RELEASE_TAG}"
+      PACKAGE_FILE="${DMG_BASENAME}.dmg"
+      PACKAGE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${CLAWBAR_PACKAGE_NAME}/${PACKAGE_VERSION}/${PACKAGE_FILE}"
+      RELEASE_ASSET_PATH="/binaries/${PACKAGE_FILE}"
+      RELEASE_DOWNLOAD_URL="${CI_PROJECT_URL}/-/releases/${RELEASE_TAG}/downloads${RELEASE_ASSET_PATH}"
+
+      printf '%s\n' \
+        "APP_VERSION=${APP_VERSION}" \
+        "APP_BUILD=${APP_BUILD}" \
+        "RELEASE_TAG=${RELEASE_TAG}" \
+        "RELEASE_NAME=${RELEASE_NAME}" \
+        "DMG_BASENAME=${DMG_BASENAME}" \
+        "PACKAGE_VERSION=${PACKAGE_VERSION}" \
+        "PACKAGE_FILE=${PACKAGE_FILE}" \
+        "PACKAGE_URL=${PACKAGE_URL}" \
+        "RELEASE_ASSET_PATH=${RELEASE_ASSET_PATH}" \
+        "RELEASE_DOWNLOAD_URL=${RELEASE_DOWNLOAD_URL}" \
+        > release.env
+
+      cat release.env
+  artifacts:
+    reports:
+      dotenv: release.env
+    paths:
+      - release.env
+
+package_main_release:
+  stage: release
+  needs:
+    - prepare_main_release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - |
+      set -euo pipefail
+
+      require_env() {
+        local name="$1"
+        if [[ -z "${!name:-}" ]]; then
+          echo "Missing required environment variable: $name" >&2
+          exit 1
+        fi
+      }
+
+      require_env APPLE_DEVELOPER_ID_CERT_BASE64
+      require_env APPLE_DEVELOPER_ID_CERT_PASSWORD
+      require_env APPLE_TEAM_ID
+      require_env APPLE_NOTARY_KEY_ID
+      require_env APPLE_NOTARY_ISSUER_ID
+      require_env APPLE_NOTARY_API_KEY_BASE64
+
+      xcodebuild -version
+      swift --version
+
+      TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/clawbar-gitlab.XXXXXX")"
+      KEYCHAIN_PATH="${TEMP_ROOT}/clawbar-signing.keychain-db"
+      CERT_PATH="${TEMP_ROOT}/clawbar-developer-id.p12"
+      API_KEY_PATH="${TEMP_ROOT}/clawbar-notary-api-key.p8"
+      KEYCHAIN_PASSWORD="$(uuidgen)"
+      export CERT_PATH API_KEY_PATH
+
+      cleanup() {
+        security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
+        rm -rf "$TEMP_ROOT"
+      }
+      trap cleanup EXIT
+
+      python3 - <<'PY'
+      import base64
+      import os
+      from pathlib import Path
+
+      Path(os.environ["CERT_PATH"]).write_bytes(
+          base64.b64decode(os.environ["APPLE_DEVELOPER_ID_CERT_BASE64"])
+      )
+      Path(os.environ["API_KEY_PATH"]).write_bytes(
+          base64.b64decode(os.environ["APPLE_NOTARY_API_KEY_BASE64"])
+      )
+      PY
+
+      security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+      security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+      security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      EXISTING_KEYCHAINS="$(security list-keychains -d user | tr -d '"')"
+      security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+
+      security import "$CERT_PATH" \
+        -k "$KEYCHAIN_PATH" \
+        -P "$APPLE_DEVELOPER_ID_CERT_PASSWORD" \
+        -T /usr/bin/codesign \
+        -T /usr/bin/security \
+        -T /usr/bin/productsign
+
+      security set-key-partition-list \
+        -S apple-tool:,apple:,codesign: \
+        -s \
+        -k "$KEYCHAIN_PASSWORD" \
+        "$KEYCHAIN_PATH"
+
+      SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F'"' '/Developer ID Application:/ {print $2; exit}')"
+      if [[ -z "$SIGNING_IDENTITY" ]]; then
+        echo "Unable to find a Developer ID Application identity in the temporary keychain." >&2
+        exit 1
+      fi
+
+      if [[ "$SIGNING_IDENTITY" != *"(${APPLE_TEAM_ID})"* ]]; then
+        echo "Resolved signing identity does not match APPLE_TEAM_ID: $SIGNING_IDENTITY" >&2
+        exit 1
+      fi
+
+      export APP_VERSION
+      export APP_BUILD
+      export DMG_BASENAME
+      export OUTPUT_FORMAT=dmg
+      export NOTARIZE=1
+      export SIGNING_IDENTITY
+      export APPLE_NOTARY_API_KEY_PATH="$API_KEY_PATH"
+
+      ./Scripts/sign_and_notarize.sh
+
+      DMG_PATH="dist/${PACKAGE_FILE}"
+
+      if curl --silent --show-error --fail \
+        --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+        --head \
+        "$PACKAGE_URL" >/dev/null 2>&1; then
+        echo "Package already exists in GitLab Package Registry: $PACKAGE_URL"
+      else
+        curl --fail --show-error --location \
+          --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+          --upload-file "$DMG_PATH" \
+          "$PACKAGE_URL"
+      fi
+  artifacts:
+    paths:
+      - dist/Clawbar.app
+      - dist/*.dmg
+    expire_in: 30 days
+
+publish_main_release:
+  stage: release
+  needs:
+    - prepare_main_release
+    - package_main_release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - |
+      set -euo pipefail
+
+      python3 - <<'PY'
+      import json
+      import os
+      import urllib.error
+      import urllib.parse
+      import urllib.request
+
+      api_root = os.environ["CI_API_V4_URL"]
+      project_id = os.environ["CI_PROJECT_ID"]
+      job_token = os.environ["CI_JOB_TOKEN"]
+      release_tag = os.environ["RELEASE_TAG"]
+      release_name = os.environ["RELEASE_NAME"]
+      package_url = os.environ["PACKAGE_URL"]
+      release_asset_path = os.environ["RELEASE_ASSET_PATH"]
+      release_download_url = os.environ["RELEASE_DOWNLOAD_URL"]
+
+      description = (
+          f"Automated signed and notarized build for {os.environ['CI_COMMIT_SHA']} "
+          f"from {os.environ['CI_DEFAULT_BRANCH']}."
+      )
+
+      encoded_tag = urllib.parse.quote(release_tag, safe="")
+      release_url = f"{api_root}/projects/{project_id}/releases/{encoded_tag}"
+      links_url = f"{release_url}/assets/links"
+      headers = {
+          "JOB-TOKEN": job_token,
+          "Content-Type": "application/json",
+      }
+
+      def request_json(method, url, payload=None, expected=(200, 201)):
+          data = None if payload is None else json.dumps(payload).encode("utf-8")
+          request = urllib.request.Request(url, data=data, method=method, headers=headers)
+          try:
+              with urllib.request.urlopen(request) as response:
+                  body = response.read()
+                  if response.status not in expected:
+                      raise RuntimeError(f"Unexpected HTTP {response.status}: {body.decode('utf-8', 'replace')}")
+                  return json.loads(body.decode("utf-8") or "{}")
+          except urllib.error.HTTPError as error:
+              if error.code not in expected:
+                  raise RuntimeError(
+                      f"{method} {url} failed with HTTP {error.code}: {error.read().decode('utf-8', 'replace')}"
+                  ) from error
+              return json.loads(error.read().decode("utf-8") or "{}")
+
+      try:
+          request_json("GET", release_url, expected=(200,))
+          request_json(
+              "PUT",
+              release_url,
+              {
+                  "name": release_name,
+                  "description": description,
+              },
+              expected=(200,),
+          )
+      except RuntimeError as error:
+          if "HTTP 404" not in str(error):
+              raise
+          request_json(
+              "POST",
+              f"{api_root}/projects/{project_id}/releases",
+              {
+                  "name": release_name,
+                  "tag_name": release_tag,
+                  "ref": os.environ["CI_COMMIT_SHA"],
+                  "description": description,
+              },
+              expected=(201,),
+          )
+
+      existing_links = request_json("GET", links_url, expected=(200,))
+      link_name = "Signed and notarized DMG"
+      matching_link = next((item for item in existing_links if item.get("name") == link_name), None)
+      link_payload = {
+          "name": link_name,
+          "url": package_url,
+          "filepath": release_asset_path,
+          "link_type": "package",
+      }
+
+      if matching_link:
+          link_id = matching_link["id"]
+          request_json("PUT", f"{links_url}/{link_id}", link_payload, expected=(200,))
+      else:
+          request_json("POST", links_url, link_payload, expected=(201,))
+
+      print(f"Release asset URL: {release_download_url}")
+      PY

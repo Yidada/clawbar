@@ -3,6 +3,19 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 NOTARIZE="${CLAWBAR_DMG_NOTARIZE:-0}"
+ENV_FILE="${CLAWBAR_DMG_ENV_FILE:-$ROOT_DIR/.env}"
+
+load_local_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    echo "Loading packaging environment from $ENV_FILE"
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+  fi
+}
+
+load_local_env
 
 case "$NOTARIZE" in
   0)

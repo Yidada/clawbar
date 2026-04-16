@@ -687,6 +687,18 @@ struct ProviderManagementView: View {
         }
     }
 
+    private func oauthDetailRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.secondaryText)
+
+            Text(value)
+                .font(.subheadline)
+                .textSelection(.enabled)
+        }
+    }
+
     private func suggestionRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Circle()

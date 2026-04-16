@@ -112,7 +112,7 @@ Artifacts/Harness/Runs/<timestamp>-<label>/
 菜单栏截图和菜单验证仍然使用 skill 自带的 Accessibility 辅助脚本：
 
 - `press_status_item.swift`
-- `verify_menu.swift`
+- `verify_popup.swift`
 
 但 app 的构建、启动、状态注入、重启和日志路径已经统一下沉到 harness：
 

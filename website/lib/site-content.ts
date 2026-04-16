@@ -33,7 +33,7 @@ type LocaleCopy = {
 export const releaseInfo = {
   version: "0.0.6",
   tag: "v0.0.6",
-  minMacOS: "macOS 14+",
+  minMacOS: "macOS 13+",
   downloadUrl:
     "https://github.com/Yidada/clawbar/releases/download/v0.0.6/Clawbar-0.0.6.dmg",
   releaseUrl: "https://github.com/Yidada/clawbar/releases/tag/v0.0.6",
@@ -46,7 +46,7 @@ export const siteCopy: Record<LocaleCode, LocaleCopy> = {
     brandTagline: "The easiest way to use OpenClaw",
     title: "OpenClaw, made easy.",
     summary:
-      "Clawbar is a macOS 14+ companion app that lets you install, configure, and run OpenClaw in a few clicks. No terminal, no guesswork — just open the menu bar and go.",
+      "Clawbar is a macOS 13+ companion app that lets you install, configure, and run OpenClaw in a few clicks. No terminal, no guesswork — just open the menu bar and go.",
     heroLinks: [
       { label: "Download Latest DMG", href: releaseInfo.downloadUrl, variant: "primary" },
       { label: "Browse Source", href: releaseInfo.repoUrl, variant: "secondary" },
@@ -81,14 +81,14 @@ export const siteCopy: Record<LocaleCode, LocaleCopy> = {
     ],
     metadataTitle: "Clawbar | The easiest way to use OpenClaw",
     metadataDescription:
-      "Download Clawbar, a macOS 14+ companion app that makes installing, configuring, and running OpenClaw effortless.",
+      "Download Clawbar, a macOS 13+ companion app that makes installing, configuring, and running OpenClaw effortless.",
   },
   "zh-CN": {
     languageName: "简体中文",
     brandTagline: "用最简单的方式使用 OpenClaw",
     title: "在 Mac 上使用 OpenClaw 最简单的方式。",
     summary:
-      "Clawbar 是一个 macOS 14+ 伴侣应用，让你几次点击就能安装、配置和运行 OpenClaw。不需要终端，不需要猜命令——打开菜单栏就能开始。",
+      "Clawbar 是一个 macOS 13+ 伴侣应用，让你几次点击就能安装、配置和运行 OpenClaw。不需要终端，不需要猜命令——打开菜单栏就能开始。",
     heroLinks: [
       { label: "下载最新 DMG", href: releaseInfo.downloadUrl, variant: "primary" },
       { label: "查看源码", href: releaseInfo.repoUrl, variant: "secondary" },
@@ -123,7 +123,7 @@ export const siteCopy: Record<LocaleCode, LocaleCopy> = {
     ],
     metadataTitle: "Clawbar | 用最简单的方式使用 OpenClaw",
     metadataDescription:
-      "下载 Clawbar，一个让安装、配置和运行 OpenClaw 变得轻松简单的 macOS 14+ 伴侣应用。",
+      "下载 Clawbar，一个让安装、配置和运行 OpenClaw 变得轻松简单的 macOS 13+ 伴侣应用。",
   },
 };
 

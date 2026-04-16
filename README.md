@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Clawbar is a macOS 14+ menu bar app for installing, configuring, and operating a local OpenClaw setup. It keeps the operational entry points in one place: install or remove OpenClaw, manage Gateway, Providers, and Channels, inspect current status, and launch the OpenClaw TUI from the menu bar.
+Clawbar is a macOS 13+ menu bar app for installing, configuring, and operating a local OpenClaw setup. It keeps the operational entry points in one place: install or remove OpenClaw, manage Gateway, Providers, and Channels, inspect current status, and launch the OpenClaw TUI from the menu bar.
 
 ## Install
 
@@ -21,7 +21,7 @@ swift run Clawbar
 
 ## Requirements
 
-- macOS 14+
+- macOS 13+
 - Swift tools 6.2 or newer
 - Xcode with a Swift 6.2 toolchain, or standalone Swift 6.2+
 

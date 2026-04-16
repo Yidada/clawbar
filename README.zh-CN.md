@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Clawbar 是一个 macOS 14+ 菜单栏应用，用于本地安装、配置和操作 OpenClaw。它把常用运维入口集中到一个菜单栏应用里：安装或卸载 OpenClaw，管理 Gateway、Provider、Channels，查看当前状态，并从菜单栏直接拉起 OpenClaw TUI。
+Clawbar 是一个 macOS 13+ 菜单栏应用，用于本地安装、配置和操作 OpenClaw。它把常用运维入口集中到一个菜单栏应用里：安装或卸载 OpenClaw，管理 Gateway、Provider、Channels，查看当前状态，并从菜单栏直接拉起 OpenClaw TUI。
 
 ## 安装
 
@@ -21,7 +21,7 @@ swift run Clawbar
 
 ## 环境要求
 
-- macOS 14+
+- macOS 13+
 - Swift tools 6.2 或更新版本
 - 带 Swift 6.2 toolchain 的 Xcode，或独立 Swift 6.2+
 

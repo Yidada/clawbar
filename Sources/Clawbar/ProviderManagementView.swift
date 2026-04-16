@@ -277,7 +277,7 @@ struct ProviderManagementView: View {
         .task {
             manager.refreshStatus(syncSelectionWithDefault: true)
         }
-        .onChange(of: manager.selectedProvider) { _, _ in
+        .onChange(of: manager.selectedProvider) { _ in
             manager.refreshSelectedProvider()
         }
     }

@@ -27,6 +27,8 @@
   适配 Codebase CI Variables 的 main 合入自动签名发布说明，覆盖 macOS runner、GitLab API token 和 release 挂载流程。
 - `2026-04-07-action-feedback-design.md`
   Clawbar 成功/失败反馈增强方案，包含统一 feedback model、页面内状态层、全局结果层、菜单栏回流和分阶段落地建议。
+- `2026-04-18-hermes-agent-integration.md`
+  Clawbar 支持 Hermes Agent 的设计方案摘要与飞书文档入口，覆盖 `AgentRuntime` 抽象、安装策略、Provider / Gateway / TUI 分层、分阶段落地和风险清单。
 
 ## 文档约定
 

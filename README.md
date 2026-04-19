@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Clawbar is a macOS 13+ menu bar app for installing, configuring, and operating a local OpenClaw setup. It keeps the operational entry points in one place: install or remove OpenClaw, manage Gateway, Providers, and Channels, inspect current status, and launch the OpenClaw TUI from the menu bar.
+Clawbar is a macOS 13+ menu bar app for installing, configuring, and operating local Agent runtimes (OpenClaw and Hermes Agent). It keeps the operational entry points in one place: install or remove each runtime, manage Gateway / Providers / Channels (where applicable), inspect current status, and launch each runtime's TUI from the menu bar. Runtimes are kept physically isolated (`~/.openclaw/` vs `~/.hermes/`) and surfaced through a single `AgentRuntime` protocol with capability sub-protocols, so adding more runtimes does not require rewriting Clawbar's UI shell.
 
 ## Install
 
@@ -33,12 +33,13 @@ swift run Clawbar
 - Local Gateway token preparation and Gateway background service management
 - Provider configuration, default model selection, and authentication state management through the `openclaw` CLI
 - Channel management for Feishu registration and WeChat onboarding flows
-- Menu bar status summaries for installation state, executable path, and recent operational status
+- Hermes Agent install/upgrade/uninstall via `uv tool install hermes-agent`, with provider configuration through `hermes config set ...`, Gateway service control (`hermes gateway install/start/stop/restart/uninstall`), and a Terminal-launched TUI in classic or Ink mode
+- Menu bar status summaries for installation state, executable path, and recent operational status, plus a dedicated "Hermes 管理" window for the Hermes runtime
 
 ## Repository Layout
 
 - `Sources/ClawbarKit/` shared lifecycle, menu-state, and other testable app logic
-- `Sources/Clawbar/` app entry point, SwiftUI/AppKit integration, and OpenClaw management flows
+- `Sources/Clawbar/` app entry point, SwiftUI/AppKit integration, the `AgentRuntime` protocol + capability sub-protocols, and per-runtime managers (OpenClaw, Hermes)
 - `Tests/ClawbarTests/` XCTest coverage for shared logic and grouped integration flows
 - `Tests/Harness/` harness entrypoint for the dev loop, smoke runs, integration suites, and diagnostics
 - `docs/` current process notes and release documentation
@@ -65,6 +66,7 @@ python3 Tests/Harness/clawbarctl.py test unit --coverage-gate
 python3 Tests/Harness/clawbarctl.py test smoke
 python3 Tests/Harness/clawbarctl.py test integration --suite all
 python3 Tests/Harness/clawbarctl.py test integration --suite provider
+python3 Tests/Harness/clawbarctl.py test integration --suite hermes
 python3 Tests/Harness/clawbarctl.py test all
 python3 Tests/Harness/clawbarctl.py logs collect
 ```

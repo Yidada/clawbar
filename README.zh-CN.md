@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Clawbar 是一个 macOS 13+ 菜单栏应用，用于本地安装、配置和操作 OpenClaw。它把常用运维入口集中到一个菜单栏应用里：安装或卸载 OpenClaw，管理 Gateway、Provider、Channels，查看当前状态，并从菜单栏直接拉起 OpenClaw TUI。
+Clawbar 是一个 macOS 13+ 菜单栏应用，用于本地安装、配置和操作多种 Agent 运行时（OpenClaw 与 Hermes Agent）。它把常用运维入口集中到一个菜单栏应用里：安装或卸载各 runtime，管理 Gateway、Provider、Channels（按能力支持），查看当前状态，并从菜单栏直接拉起对应的 TUI。Clawbar 通过 `AgentRuntime` 协议 + 能力子协议把每个 runtime 解耦，并在文件系统层面把 `~/.openclaw/` 与 `~/.hermes/` 物理隔离，以后增加新 runtime 不需要重写菜单 UI。
 
 ## 安装
 
@@ -33,12 +33,13 @@ swift run Clawbar
 - 本地 Gateway token 准备，以及 Gateway 后台服务管理
 - 通过 `openclaw` CLI 管理 Provider 配置、默认模型和认证状态
 - 支持飞书接入配置和微信接入流程的 Channels 管理
-- 菜单栏持续展示安装状态、可执行文件路径和最近状态摘要
+- Hermes Agent：通过 `uv tool install hermes-agent` 安装/升级/卸载，使用 `hermes config set ...` 配置 Provider，使用 `hermes gateway install/start/stop/restart/uninstall` 控制 Gateway 服务，并支持以 classic 或 Ink 风格在 Terminal 中拉起 Hermes TUI
+- 菜单栏持续展示安装状态、可执行文件路径和最近状态摘要，并提供独立的「Hermes 管理」窗口
 
 ## 仓库结构
 
 - `Sources/ClawbarKit/`：共享生命周期、菜单状态和其他可测试逻辑
-- `Sources/Clawbar/`：应用入口、SwiftUI/AppKit 集成和 OpenClaw 管理流程
+- `Sources/Clawbar/`：应用入口、SwiftUI/AppKit 集成、`AgentRuntime` 协议与能力子协议，以及各 runtime（OpenClaw、Hermes）的管理流程
 - `Tests/ClawbarTests/`：共享逻辑与分组集成流程的 XCTest 覆盖
 - `Tests/Harness/`：dev loop、smoke、integration、diagnostics 的统一 harness 入口
 - `docs/`：当前仍然有效的流程说明和发布文档
@@ -65,6 +66,7 @@ python3 Tests/Harness/clawbarctl.py test unit --coverage-gate
 python3 Tests/Harness/clawbarctl.py test smoke
 python3 Tests/Harness/clawbarctl.py test integration --suite all
 python3 Tests/Harness/clawbarctl.py test integration --suite provider
+python3 Tests/Harness/clawbarctl.py test integration --suite hermes
 python3 Tests/Harness/clawbarctl.py test all
 python3 Tests/Harness/clawbarctl.py logs collect
 ```

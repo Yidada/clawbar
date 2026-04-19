@@ -5,6 +5,8 @@ enum ClawbarWindow {
     static let openClawInstallID = "openclaw-install"
     static let openClawInstallTitle = "OpenClaw 操作"
     static let applicationManagementID = "application-management"
+    static let hermesManagementID = "hermes-management"
+    static let hermesManagementTitle = "Hermes 管理"
 }
 
 @main
@@ -15,12 +17,16 @@ struct ClawbarApp: App {
     private let gatewayManager = OpenClawGatewayManager.shared
     private let tuiManager = OpenClawTUIManager.shared
     private let applicationManagementRouter = ApplicationManagementRouter.shared
+    private let hermesInstaller = HermesInstaller.shared
+    private let hermesGatewayManager = HermesGatewayManager.shared
+    private let hermesTUIManager = HermesTUIManager.shared
 
     @SceneBuilder
     var body: some Scene {
         menuBarScene
         installScene
         applicationManagementScene
+        hermesManagementScene
     }
 
     private var menuBarScene: some Scene {
@@ -55,5 +61,16 @@ struct ClawbarApp: App {
             )
         }
         .defaultSize(width: 820, height: 660)
+    }
+
+    private var hermesManagementScene: some Scene {
+        Window(ClawbarWindow.hermesManagementTitle, id: ClawbarWindow.hermesManagementID) {
+            HermesManagementView(
+                installer: hermesInstaller,
+                gatewayManager: hermesGatewayManager,
+                tuiManager: hermesTUIManager
+            )
+        }
+        .defaultSize(width: 760, height: 640)
     }
 }

@@ -36,6 +36,13 @@ INTEGRATION_SUITES: dict[str, list[str]] = {
         "OpenClawTUIManagerTests",
     ],
     "installer": ["OpenClawInstallerTests"],
+    "hermes": [
+        "AgentRuntimeRegistryTests",
+        "HermesInstallerTests",
+        "HermesProviderManagerTests",
+        "HermesGatewayManagerTests",
+        "HermesTUIManagerTests",
+    ],
 }
 
 

@@ -215,6 +215,15 @@ struct MenuContentView: View {
                 )
             }
 
+            actionButton(
+                title: "Hermes 管理",
+                systemImage: "scribble.variable",
+                trailingText: nil,
+                isDisabled: false,
+                accessibilityElement: .hermesManagementButton,
+                action: openHermesManagement
+            )
+
             if snapshot.showsQuitAction {
                 actionButton(
                     title: model.quitButtonTitle,
@@ -228,6 +237,11 @@ struct MenuContentView: View {
                 .keyboardShortcut("q")
             }
         }
+    }
+
+    private func openHermesManagement() {
+        openWindow(id: ClawbarWindow.hermesManagementID)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private var divider: some View {

@@ -33,10 +33,13 @@ python3 Tests/Harness/clawbarctl.py test unit --coverage-gate
 python3 Tests/Harness/clawbarctl.py test smoke
 python3 Tests/Harness/clawbarctl.py test integration --suite all
 python3 Tests/Harness/clawbarctl.py test integration --suite gateway
+python3 Tests/Harness/clawbarctl.py test integration --suite hermes
 python3 Tests/Harness/clawbarctl.py test all
 ```
 
-Available integration suites: `all`, `feishu`, `gateway`, `installer`, `provider`, `wechat`.
+Available integration suites: `all`, `feishu`, `gateway`, `hermes`, `installer`, `provider`, `wechat`.
+
+The `hermes` suite covers the multi-runtime abstraction (`AgentRuntimeRegistryTests`) plus the four Hermes-specific managers (`HermesInstallerTests`, `HermesProviderManagerTests`, `HermesGatewayManagerTests`, `HermesTUIManagerTests`).
 
 Useful flags:
 

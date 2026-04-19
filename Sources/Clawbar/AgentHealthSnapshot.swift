@@ -1,0 +1,6 @@
+import Foundation
+
+typealias AgentHealthSnapshot = OpenClawHealthSnapshot
+typealias AgentHealthLevel = OpenClawHealthLevel
+typealias AgentHealthDimension = OpenClawHealthDimension
+typealias AgentHealthDimensionSnapshot = OpenClawHealthDimensionSnapshot

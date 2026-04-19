@@ -9,6 +9,7 @@ specs/
 .playwright-mcp/
 .claude/launch.json
 .claude/worktrees/
+References/hermes-agent/
 .omx/
 website/.next/
 website/.vercel/

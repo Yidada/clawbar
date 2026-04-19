@@ -12,6 +12,7 @@ public enum MenuContentElement: String, Equatable, Sendable {
     case uninstallButton
     case tuiDebugButton
     case managementButton
+    case hermesManagementButton
     case quitButton
 }
 
